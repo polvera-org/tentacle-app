@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Tentacle",
   "version": "0.1.0",
-  "identifier": "com.tentacle.app",
+  "identifier": "com.tentacle.desktop",
   "build": {
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",

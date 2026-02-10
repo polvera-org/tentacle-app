@@ -1,38 +1,65 @@
+import { createClient } from '@/lib/auth/supabase-client'
 import type { Document, DocumentListItem, CreateDocumentPayload, UpdateDocumentPayload } from '@/types/documents'
 
 export async function fetchDocuments(): Promise<DocumentListItem[]> {
-  const res = await fetch('/api/documents')
-  if (!res.ok) throw new Error('Failed to fetch documents')
-  return res.json()
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('documents')
+    .select('id, title, body, banner_image_url, created_at, updated_at')
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+
+  if (error) throw new Error(`Failed to fetch documents: ${error.message}`)
+  return data
 }
 
 export async function createDocument(payload?: CreateDocumentPayload): Promise<Document> {
-  const res = await fetch('/api/documents', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload || {}),
-  })
-  if (!res.ok) throw new Error('Failed to create document')
-  return res.json()
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('documents')
+    .insert({
+      title: payload?.title || 'Untitled',
+      body: '',
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to create document: ${error.message}`)
+  return data
 }
 
 export async function fetchDocument(id: string): Promise<Document> {
-  const res = await fetch(`/api/documents/${id}`)
-  if (!res.ok) throw new Error('Failed to fetch document')
-  return res.json()
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('documents')
+    .select('*')
+    .eq('id', id)
+    .is('deleted_at', null)
+    .single()
+
+  if (error) throw new Error(`Failed to fetch document: ${error.message}`)
+  return data
 }
 
 export async function updateDocument(id: string, payload: UpdateDocumentPayload): Promise<Document> {
-  const res = await fetch(`/api/documents/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error('Failed to update document')
-  return res.json()
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('documents')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update document: ${error.message}`)
+  return data
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  const res = await fetch(`/api/documents/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('Failed to delete document')
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('documents')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) throw new Error(`Failed to delete document: ${error.message}`)
 }
