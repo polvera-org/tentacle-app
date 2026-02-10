@@ -35,9 +35,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
-  const supabase = createClient()
 
   useEffect(() => {
+    const supabase = createClient()
+
     // Get initial session
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -58,29 +59,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     )
 
     return () => subscription.unsubscribe()
-  }, [supabase])
+  }, [])
 
   // Automatic route protection
   useEffect(() => {
     if (isLoading) return
 
-    const isPublicRoute = publicRoutes.some(route =>
-      pathname === route || pathname.startsWith(route + '/')
-    )
+    const isPublicRoute = publicRoutes.some(route => {
+      if (route === '/') return pathname === '/'
+      return pathname === route || pathname.startsWith(route + '/')
+    })
 
     // Redirect to login if accessing protected route without auth
     if (!isPublicRoute && !user) {
       const loginUrl = `/login?returnUrl=${encodeURIComponent(pathname)}`
-      router.push(loginUrl)
+      router.replace(loginUrl)
+      return
     }
 
     // Redirect to app if logged in and accessing auth pages
     if (user && (pathname === '/login' || pathname === '/signup')) {
-      router.push('/app')
+      router.replace('/app')
+      return
     }
-  }, [user, isLoading, pathname, router])
+  }, [user, isLoading, pathname])
 
   const signIn = async (email: string, password: string) => {
+    const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -89,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signUp = async (email: string, password: string) => {
+    const supabase = createClient()
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -100,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signInWithGoogle = async () => {
+    const supabase = createClient()
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -110,11 +117,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
+    const supabase = createClient()
     const { error } = await supabase.auth.signOut()
     return { error }
   }
 
   const resetPassword = async (email: string) => {
+    const supabase = createClient()
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password/confirm`,
     })
@@ -122,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const updatePassword = async (password: string) => {
+    const supabase = createClient()
     const { error } = await supabase.auth.updateUser({
       password,
     })

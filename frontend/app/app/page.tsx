@@ -13,11 +13,11 @@ export default function DashboardPage() {
   const handleLogout = async () => {
     setIsLoggingOut(true)
     const { error } = await signOut()
-    if (!error) {
-      router.push('/login')
-    } else {
+    if (error) {
+      console.error('Logout failed:', error)
       setIsLoggingOut(false)
     }
+    // Auth context will handle redirect automatically when user becomes null
   }
 
   return (
