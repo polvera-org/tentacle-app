@@ -85,21 +85,21 @@ export function PasswordResetConfirm() {
   if (isSuccess) {
     return (
       <div className="text-center space-y-4">
-        <div className="w-16 h-16 mx-auto bg-green-900/30 rounded-full flex items-center justify-center">
-          <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="w-16 h-16 mx-auto bg-green-50 rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white">Password updated!</h3>
-        <p className="text-gray-400 text-sm">
+        <h3 className="text-lg font-medium text-gray-900">Password updated!</h3>
+        <p className="text-gray-600 text-sm">
           Your password has been successfully reset.
         </p>
         <p className="text-xs text-gray-500">
           Redirecting you to login in a few seconds...
         </p>
-        <Link 
-          href="/login" 
-          className="inline-block text-violet-400 hover:text-violet-300 text-sm"
+        <Link
+          href="/login"
+          className="inline-block text-violet-600 hover:text-violet-700 text-sm"
         >
           Go to login
         </Link>
@@ -110,16 +110,16 @@ export function PasswordResetConfirm() {
   if (error && !hasSession) {
     return (
       <div className="text-center space-y-4">
-        <div className="w-16 h-16 mx-auto bg-red-900/30 rounded-full flex items-center justify-center">
-          <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="w-16 h-16 mx-auto bg-red-50 rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white">Link expired</h3>
-        <p className="text-gray-400 text-sm">{error}</p>
-        <Link 
-          href="/reset-password" 
-          className="inline-block text-violet-400 hover:text-violet-300 text-sm"
+        <h3 className="text-lg font-medium text-gray-900">Link expired</h3>
+        <p className="text-gray-600 text-sm">{error}</p>
+        <Link
+          href="/reset-password"
+          className="inline-block text-violet-600 hover:text-violet-700 text-sm"
         >
           Request new reset link
         </Link>
@@ -130,23 +130,23 @@ export function PasswordResetConfirm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       {error && (
-        <div 
+        <div
           role="alert"
           aria-live="polite"
-          className="p-3 text-sm text-red-200 bg-red-900/30 border border-red-800 rounded-lg"
+          className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-full"
         >
           {error}
         </div>
       )}
 
-      <p className="text-sm text-gray-400">
+      <p className="text-sm text-gray-600">
         Enter your new password below.
       </p>
 
       <div>
-        <label 
-          htmlFor="password" 
-          className="block text-sm font-medium text-gray-300 mb-2"
+        <label
+          htmlFor="password"
+          className="block text-sm font-medium text-gray-700 mb-2"
         >
           New password
         </label>
@@ -160,7 +160,7 @@ export function PasswordResetConfirm() {
           required
           autoFocus
           aria-required="true"
-          className="w-full h-12 px-4 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
           placeholder="••••••••"
         />
         <ul className="mt-2 space-y-1">
@@ -168,7 +168,7 @@ export function PasswordResetConfirm() {
             <li
               key={req.label}
               className={`flex items-center gap-2 text-xs transition-colors ${
-                req.test(password) ? 'text-green-400' : 'text-gray-500'
+                req.test(password) ? 'text-green-600' : 'text-gray-400'
               }`}
             >
               <span className="w-4 h-4 flex items-center justify-center">
@@ -181,9 +181,9 @@ export function PasswordResetConfirm() {
       </div>
 
       <div>
-        <label 
-          htmlFor="confirmPassword" 
-          className="block text-sm font-medium text-gray-300 mb-2"
+        <label
+          htmlFor="confirmPassword"
+          className="block text-sm font-medium text-gray-700 mb-2"
         >
           Confirm new password
         </label>
@@ -196,11 +196,11 @@ export function PasswordResetConfirm() {
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
           aria-required="true"
-          className="w-full h-12 px-4 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
           placeholder="••••••••"
         />
         {confirmPassword && !doPasswordsMatch && (
-          <p className="mt-1 text-sm text-red-400">
+          <p className="mt-1 text-sm text-red-600">
             Passwords do not match
           </p>
         )}
@@ -210,7 +210,7 @@ export function PasswordResetConfirm() {
         type="submit"
         disabled={isLoading}
         aria-disabled={isLoading}
-        className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+        className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
       >
         {isLoading ? (
           <span className="flex items-center justify-center gap-2">

@@ -5,35 +5,35 @@ import { LoginForm } from '@/components/auth/login-form'
 function LoginFormFallback() {
   return (
     <div className="space-y-5 animate-pulse">
-      <div className="h-12 bg-gray-800 rounded-lg" />
-      <div className="h-12 bg-gray-800 rounded-lg" />
-      <div className="h-12 bg-violet-900/30 rounded-lg" />
+      <div className="h-12 bg-gray-100 rounded-full" />
+      <div className="h-12 bg-gray-100 rounded-full" />
+      <div className="h-12 bg-violet-100 rounded-full" />
     </div>
   )
 }
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-[#0A0A0B] flex flex-col justify-center px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-white flex flex-col justify-center px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full mx-auto space-y-8">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-white">Welcome back</h1>
-          <p className="mt-2 text-sm text-gray-400">
-            Sign in to continue to Tentacle
+          <h1 className="text-3xl font-bold text-gray-900">Sign in</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            Welcome back! Please sign in to continue
           </p>
         </div>
 
-        <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-2xl p-6 sm:p-8 shadow-xl">
+        <div className="p-6 sm:p-8">
           <Suspense fallback={<LoginFormFallback />}>
             <LoginForm />
           </Suspense>
         </div>
 
-        <p className="text-center text-sm text-gray-500">
+        <p className="text-center text-sm text-gray-600">
           Don&apos;t have an account?{' '}
-          <Link 
-            href="/signup" 
-            className="font-medium text-violet-400 hover:text-violet-300 transition-colors"
+          <Link
+            href="/signup"
+            className="font-medium text-violet-600 hover:text-violet-700 transition-colors"
           >
             Sign up
           </Link>

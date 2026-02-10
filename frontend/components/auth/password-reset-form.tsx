@@ -40,21 +40,21 @@ export function PasswordResetForm() {
   if (isSuccess) {
     return (
       <div className="text-center space-y-4">
-        <div className="w-16 h-16 mx-auto bg-green-900/30 rounded-full flex items-center justify-center">
-          <svg className="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="w-16 h-16 mx-auto bg-green-50 rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white">Check your email</h3>
-        <p className="text-gray-400 text-sm">
-          We&apos;ve sent a password reset link to <strong className="text-gray-300">{email}</strong>
+        <h3 className="text-lg font-medium text-gray-900">Check your email</h3>
+        <p className="text-gray-600 text-sm">
+          We&apos;ve sent a password reset link to <strong className="text-gray-900">{email}</strong>
         </p>
         <p className="text-xs text-gray-500">
           The link will expire in 24 hours. If you don&apos;t see it, check your spam folder.
         </p>
-        <Link 
-          href="/login" 
-          className="inline-block text-violet-400 hover:text-violet-300 text-sm"
+        <Link
+          href="/login"
+          className="inline-block text-violet-600 hover:text-violet-700 text-sm"
         >
           Back to login
         </Link>
@@ -65,23 +65,23 @@ export function PasswordResetForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       {error && (
-        <div 
+        <div
           role="alert"
           aria-live="polite"
-          className="p-3 text-sm text-red-200 bg-red-900/30 border border-red-800 rounded-lg"
+          className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-full"
         >
           {error}
         </div>
       )}
 
-      <p className="text-sm text-gray-400">
+      <p className="text-sm text-gray-600">
         Enter your email address and we&apos;ll send you a link to reset your password.
       </p>
 
       <div>
-        <label 
-          htmlFor="email" 
-          className="block text-sm font-medium text-gray-300 mb-2"
+        <label
+          htmlFor="email"
+          className="block text-sm font-medium text-gray-700 mb-2"
         >
           Email address
         </label>
@@ -95,7 +95,7 @@ export function PasswordResetForm() {
           required
           autoFocus
           aria-required="true"
-          className="w-full h-12 px-4 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
           placeholder="you@example.com"
         />
       </div>
@@ -104,7 +104,7 @@ export function PasswordResetForm() {
         type="submit"
         disabled={isLoading}
         aria-disabled={isLoading}
-        className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+        className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
       >
         {isLoading ? (
           <span className="flex items-center justify-center gap-2">

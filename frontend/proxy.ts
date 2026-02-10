@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { updateSession } from './lib/auth/supabase-middleware'
 
 // Public routes that don't require authentication
-const publicRoutes = ['/', '/login', '/signup', '/reset-password']
+const publicRoutes = ['/', '/login', '/signup', '/reset-password', '/auth/callback']
 
 export async function proxy(request: NextRequest) {
   const { user, response } = await updateSession(request)
