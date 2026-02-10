@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+
+export const dynamicParams = false
 import { useParams, useRouter } from 'next/navigation'
 import { fetchDocument, updateDocument, deleteDocument } from '@/lib/documents/api'
 import { useDebounce } from '@/hooks/use-debounce'
