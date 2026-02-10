@@ -1,0 +1,124 @@
+{
+  "features": [
+    {
+      "id": "AC-1",
+      "title": "Tauri project structure created with proper configuration",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-2",
+      "title": "Next.js configured for static export with output: 'export'",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-3",
+      "title": "Desktop application launches and displays home page",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-4",
+      "title": "Authentication flow works end-to-end with session persistence",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-5",
+      "title": "Document editor renders and functions correctly",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-6",
+      "title": "Hot reload works during development workflow",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-7",
+      "title": "Cross-platform installers generated for macOS, Windows, and Linux",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-8",
+      "title": "Error handling displays user-friendly messages with network error clarity",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-9",
+      "title": "Security requirements met with secure token storage and CSP headers",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-10",
+      "title": "Application cold start time under 3 seconds",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-11",
+      "title": "Document list loads from Supabase within 2 seconds with network connection",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-12",
+      "title": "Application bundle size under 50MB for each platform",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-13",
+      "title": "Documentation updated with Tauri setup and build instructions",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-14",
+      "title": "No console errors during normal application usage",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    },
+    {
+      "id": "AC-15",
+      "title": "Supabase authentication and database operations work via network requests",
+      "status": "fail",
+      "evidence": "",
+      "owner": "product-owner",
+      "lastUpdated": "2026-02-10"
+    }
+  ]
+}
