@@ -8,8 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:dev": "source \"$HOME/.cargo/env\" && tauri dev",
+    "tauri:build": "source \"$HOME/.cargo/env\" && tauri build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
