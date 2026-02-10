@@ -4,7 +4,7 @@ import { updateSession } from './lib/auth/supabase-middleware'
 // Public routes that don't require authentication
 const publicRoutes = ['/', '/login', '/signup', '/reset-password']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { user, response } = await updateSession(request)
   const { pathname } = request.nextUrl
 
