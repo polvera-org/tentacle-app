@@ -13,7 +13,10 @@ interface DocumentEditorProps {
 
 export function DocumentEditor({ initialContent, onContentChange }: DocumentEditorProps) {
   const onContentChangeRef = useRef(onContentChange)
-  onContentChangeRef.current = onContentChange
+
+  useEffect(() => {
+    onContentChangeRef.current = onContentChange
+  }, [onContentChange])
 
   const editor = useEditor({
     extensions: [

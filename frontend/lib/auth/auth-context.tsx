@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session, AuthError } from '@supabase/supabase-js'
 import { createClient } from './supabase-client'
+import { useRouter, usePathname } from 'next/navigation'
 
 interface AuthContextType {
   user: User | null
@@ -18,10 +19,22 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// Public routes that don't require authentication
+const publicRoutes = [
+  '/',
+  '/login',
+  '/signup',
+  '/reset-password',
+  '/reset-password/confirm',
+  '/auth/callback',
+]
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const router = useRouter()
+  const pathname = usePathname()
   const supabase = createClient()
 
   useEffect(() => {
@@ -45,7 +58,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     )
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [supabase])
+
+  // Automatic route protection
+  useEffect(() => {
+    if (isLoading) return
+
+    const isPublicRoute = publicRoutes.some(route =>
+      pathname === route || pathname.startsWith(route + '/')
+    )
+
+    // Redirect to login if accessing protected route without auth
+    if (!isPublicRoute && !user) {
+      const loginUrl = `/login?returnUrl=${encodeURIComponent(pathname)}`
+      router.push(loginUrl)
+    }
+
+    // Redirect to app if logged in and accessing auth pages
+    if (user && (pathname === '/login' || pathname === '/signup')) {
+      router.push('/app')
+    }
+  }, [user, isLoading, pathname, router])
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({

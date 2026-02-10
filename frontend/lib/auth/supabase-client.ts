@@ -1,6 +1,6 @@
 'use client'
 
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 // Get environment variables with fallbacks for build time
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -11,11 +11,24 @@ export function createClient() {
   // Return a mock client that will be replaced at runtime
   if (!supabaseUrl || !supabaseAnonKey) {
     console.warn('Supabase credentials not available - using fallback for build')
-    return createBrowserClient(
+    return createSupabaseClient(
       'https://placeholder.supabase.co',
-      'placeholder-key-for-build-only'
+      'placeholder-key-for-build-only',
+      {
+        auth: {
+          persistSession: true,
+          storageKey: 'tentacle-auth',
+          storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        },
+      }
     )
   }
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey)
+  return createSupabaseClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      storageKey: 'tentacle-auth',
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    },
+  })
 }
