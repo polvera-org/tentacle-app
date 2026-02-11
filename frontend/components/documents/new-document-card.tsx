@@ -3,23 +3,31 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createDocument } from '@/lib/documents/api'
+import { ErrorToast } from '@/components/ui/error-toast'
 
 export function NewDocumentCard() {
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleCreate = async () => {
     if (isCreating) return
     setIsCreating(true)
+    setError(null)
+
     try {
       const doc = await createDocument()
       router.push(`/app/documents?id=${doc.id}`)
-    } catch {
+    } catch (err) {
+      console.error('[NewDocumentCard] Failed to create document:', err)
+      const message = err instanceof Error ? err.message : 'Failed to create document. Please try again.'
+      setError(message)
       setIsCreating(false)
     }
   }
 
   return (
+    <>
     <button
       onClick={handleCreate}
       disabled={isCreating}
@@ -40,5 +48,7 @@ export function NewDocumentCard() {
         {isCreating ? 'Creating...' : 'New Document'}
       </span>
     </button>
+      {error && <ErrorToast message={error} onDismiss={() => setError(null)} />}
+    </>
   )
 }

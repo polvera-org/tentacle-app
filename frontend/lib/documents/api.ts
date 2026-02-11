@@ -54,62 +54,58 @@ interface TiptapDocument {
   content: TiptapNode[]
 }
 
-async function invokePlugin<T>(command: string, args: Record<string, unknown>): Promise<T> {
-  const { invoke, isTauri } = await import('@tauri-apps/api/core')
+async function checkTauriAvailability(): Promise<void> {
+  const { isTauri } = await import('@tauri-apps/api/core')
   if (!isTauri()) {
     throw new Error(STORAGE_UNAVAILABLE_ERROR_MESSAGE)
   }
-
-  return invoke<T>(command, args)
-}
-
-async function invokePluginWithFallbacks<T>(command: string, payloads: Record<string, unknown>[]): Promise<T> {
-  let lastError: unknown
-  for (const payload of payloads) {
-    try {
-      return await invokePlugin<T>(command, payload)
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(STORAGE_UNAVAILABLE_ERROR_MESSAGE)
 }
 
 async function getFsApi(): Promise<FsApi> {
+  // Check if running in Tauri context
+  await checkTauriAvailability()
+
+  // Import the fs plugin API
+  const fs = await import('@tauri-apps/plugin-fs')
+  const { join } = await import('@tauri-apps/api/path')
+
   return {
-    readDir: async (path, options) => invokePluginWithFallbacks<FsDirEntry[]>('plugin:fs|read_dir', [
-      { path, options: options ?? {} },
-      { path, recursive: options?.recursive ?? false },
-      { path },
-    ]),
-    readTextFile: async (path) => invokePluginWithFallbacks<string>('plugin:fs|read_text_file', [
-      { path },
-      { filePath: path },
-    ]),
+    readDir: async (path) => {
+      // Note: Tauri fs plugin doesn't support recursive option
+      // We only read the immediate directory (recursive reading not needed for our use case)
+      const entries = await fs.readDir(path)
+      return await Promise.all(
+        entries.map(async entry => {
+          const fullPath = await join(path, entry.name)
+          return {
+            name: entry.name,
+            path: fullPath,
+            isFile: entry.isFile,
+            isDirectory: entry.isDirectory,
+          }
+        })
+      )
+    },
+    readTextFile: async (path) => {
+      return await fs.readTextFile(path)
+    },
     writeTextFile: async (path, data) => {
-      await invokePluginWithFallbacks<void>('plugin:fs|write_text_file', [
-        { path, contents: data },
-        { path, data },
-        { filePath: path, contents: data },
-      ])
+      await fs.writeTextFile(path, data)
     },
     mkdir: async (path, options) => {
-      await invokePluginWithFallbacks<void>('plugin:fs|mkdir', [
-        { path, options: options ?? {} },
-        { path, recursive: options?.recursive ?? false },
-      ])
+      // Create parent directories if recursive option is true
+      if (options?.recursive) {
+        await fs.mkdir(path, { recursive: true })
+      } else {
+        await fs.mkdir(path)
+      }
     },
     rename: async (oldPath, newPath) => {
-      await invokePluginWithFallbacks<void>('plugin:fs|rename', [
-        { oldPath, newPath },
-        { from: oldPath, to: newPath },
-      ])
+      await fs.rename(oldPath, newPath)
     },
-    exists: async (path) => invokePluginWithFallbacks<boolean>('plugin:fs|exists', [
-      { path },
-      { filePath: path },
-    ]),
+    exists: async (path) => {
+      return await fs.exists(path)
+    },
   }
 }
 
@@ -186,7 +182,8 @@ function generateDocumentId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function normalizeLineEndings(value: string): string {
+function normalizeLineEndings(value: string | undefined | null): string {
+  if (!value || typeof value !== 'string') return ''
   return value.replace(/\r\n/g, '\n')
 }
 
@@ -203,6 +200,9 @@ function unquoteYamlValue(value: string): string {
 }
 
 function parseFrontmatter(fileContent: string): { metadata: Partial<MarkdownFrontmatter>, markdown: string } {
+  if (!fileContent || typeof fileContent !== 'string') {
+    return { metadata: {}, markdown: '' }
+  }
   const normalized = normalizeLineEndings(fileContent)
   if (!normalized.startsWith('---\n')) {
     return { metadata: {}, markdown: normalized }
@@ -412,8 +412,8 @@ function renderBlockNode(node: TiptapNode): string {
   }
 }
 
-function tiptapJsonToMarkdown(body: string): string {
-  if (!body || body.trim().length === 0) {
+function tiptapJsonToMarkdown(body: string | undefined | null): string {
+  if (!body || typeof body !== 'string' || body.trim().length === 0) {
     return ''
   }
 
@@ -633,6 +633,9 @@ function markdownToTiptapDocument(markdown: string): TiptapDocument {
 }
 
 function markdownToTiptapBody(markdown: string): string {
+  if (!markdown || typeof markdown !== 'string') {
+    return ''
+  }
   const normalized = normalizeLineEndings(markdown).trim()
   if (normalized.length === 0) {
     return ''
@@ -660,8 +663,15 @@ async function readStoredDocument(fs: FsApi, folder: string, id: string): Promis
 
   try {
     fileContent = await fs.readTextFile(path)
-  } catch {
+  } catch (error) {
+    console.error(`[readStoredDocument] Failed to read file "${id}":`, error)
     throw new Error(`Document "${id}" was not found.`)
+  }
+
+  // Validate file content is a string
+  if (typeof fileContent !== 'string') {
+    console.error(`[readStoredDocument] Invalid file content type for "${id}":`, typeof fileContent)
+    throw new Error(`Document "${id}" has invalid content format.`)
   }
 
   const { metadata: parsedMetadata, markdown } = parseFrontmatter(fileContent)
@@ -687,10 +697,22 @@ async function writeStoredDocument(fs: FsApi, folder: string, record: StoredDocu
   const markdownContent = buildMarkdownFile({
     ...record,
     title: normalizeTitle(record.title),
-    body: tiptapJsonToMarkdown(record.body),
+    body: tiptapJsonToMarkdown(record.body ?? ''),
   })
 
   await fs.writeTextFile(path, markdownContent)
+}
+
+async function ensureDocumentsFolderExists(fs: FsApi, folder: string): Promise<void> {
+  try {
+    const exists = await fs.exists(folder)
+    if (!exists) {
+      await fs.mkdir(folder, { recursive: true })
+    }
+  } catch (error) {
+    // If exists check fails, try creating anyway - mkdir with recursive is idempotent
+    await fs.mkdir(folder, { recursive: true })
+  }
 }
 
 async function listStoredDocumentIds(fs: FsApi, folder: string): Promise<string[]> {
@@ -728,6 +750,7 @@ export async function fetchDocuments(): Promise<DocumentListItem[]> {
         updated_at,
       }))
   } catch (error) {
+    console.error('[fetchDocuments] Failed to fetch documents:', error)
     if (error instanceof Error) {
       throw new Error(`Failed to fetch documents: ${error.message}`)
     }
@@ -739,8 +762,18 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
   try {
     const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
+
+    // Ensure documents folder exists before writing
+    await ensureDocumentsFolderExists(fs, folder)
+
     const timestamp = nowIsoString()
     const id = generateDocumentId()
+
+    // Create proper empty Tiptap document structure (matches document-editor.tsx line 29)
+    const emptyTiptapDoc = {
+      type: 'doc',
+      content: [{ type: 'paragraph' }]
+    }
 
     const record: StoredDocumentRecord = {
       metadata: {
@@ -750,12 +783,13 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
         banner_image_url: null,
       },
       title: normalizeTitle(payload?.title),
-      body: '',
+      body: JSON.stringify(emptyTiptapDoc),
     }
 
     await writeStoredDocument(fs, folder, record)
     return mapStoredRecordToDocument(record)
   } catch (error) {
+    console.error('[createDocument] Failed to create document:', error)
     if (error instanceof Error) {
       throw new Error(`Failed to create document: ${error.message}`)
     }
@@ -798,6 +832,7 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
     await writeStoredDocument(fs, folder, updatedRecord)
     return mapStoredRecordToDocument(updatedRecord)
   } catch (error) {
+    console.error(`[updateDocument] Failed to update document "${id}":`, error)
     if (error instanceof Error) {
       throw new Error(`Failed to update document: ${error.message}`)
     }
@@ -822,6 +857,7 @@ export async function deleteDocument(id: string): Promise<void> {
 
     await fs.rename(sourcePath, destinationPath)
   } catch (error) {
+    console.error(`[deleteDocument] Failed to delete document "${id}":`, error)
     if (error instanceof Error) {
       throw new Error(`Failed to delete document: ${error.message}`)
     }
