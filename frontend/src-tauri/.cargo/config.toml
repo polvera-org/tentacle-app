@@ -1,0 +1,13 @@
+[profile.release]
+# Enable Link-Time Optimization for smaller binaries
+lto = true
+
+# Use a single codegen unit for better optimization
+# (slower compile, but better optimization and smaller binary)
+codegen-units = 1
+
+# Strip symbols from release binary
+strip = true
+
+# Optimize for size (alternative: opt-level = 3 for speed)
+opt-level = "z"
