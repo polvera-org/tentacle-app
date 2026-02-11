@@ -11,7 +11,7 @@ async function getDefaultDocumentsFolder(): Promise<string> {
     const fs = await import('@tauri-apps/plugin-fs')
 
     const homePath = await homeDir()
-    const defaultPath = await join(homePath, '.tentacle', 'documents')
+    const defaultPath = await join(homePath, 'Tentacle')
 
     // Ensure the default directory exists
     const dirExists = await fs.exists(defaultPath)

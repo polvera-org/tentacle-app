@@ -18,7 +18,9 @@
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$HOME/.tentacle/**" }
+        { "path": "**/*" },
+        { "path": "**/.*" },
+        { "path": "**/.trash/*" }
       ]
     }
   ]
