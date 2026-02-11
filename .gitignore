@@ -1,7 +1,11 @@
+# environment
 .env
 .env.local
+
+# agents
 .cursor
 .claude
 .opencode
 .a0proj
+.8x
 .mcp.json
