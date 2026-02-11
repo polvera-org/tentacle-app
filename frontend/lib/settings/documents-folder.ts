@@ -45,12 +45,27 @@ export async function pickDocumentsFolder(): Promise<string | null> {
   }
 
   try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const selectedPath = await open({
-      directory: true,
-      multiple: false,
-      title: 'Choose Documents Folder',
-    })
+    const { invoke, isTauri } = await import('@tauri-apps/api/core')
+    if (!isTauri()) {
+      return null
+    }
+
+    let selectedPath: string | string[] | null
+    try {
+      selectedPath = await invoke<string | string[] | null>('plugin:dialog|open', {
+        options: {
+          directory: true,
+          multiple: false,
+          title: 'Choose Documents Folder',
+        },
+      })
+    } catch {
+      selectedPath = await invoke<string | string[] | null>('plugin:dialog|open', {
+        directory: true,
+        multiple: false,
+        title: 'Choose Documents Folder',
+      })
+    }
 
     if (typeof selectedPath !== 'string') {
       return null
