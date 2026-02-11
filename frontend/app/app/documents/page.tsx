@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { fetchDocument, updateDocument, deleteDocument } from '@/lib/documents/api'
 import { useDebounce } from '@/hooks/use-debounce'
 import { DocumentEditor } from '@/components/documents/document-editor'
@@ -10,9 +10,11 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Document } from '@/types/documents'
 import type { JSONContent } from '@tiptap/react'
 
-export default function DocumentDetailClient() {
-  const params = useParams<{ id: string }>()
+function DocumentDetailContent() {
+  const searchParams = useSearchParams()
   const router = useRouter()
+  const documentId = searchParams.get('id')
+
   const [doc, setDoc] = useState<Document | null>(null)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState<JSONContent | null>(null)
@@ -26,9 +28,14 @@ export default function DocumentDetailClient() {
   const lastSavedBody = useRef('')
 
   useEffect(() => {
+    if (!documentId) {
+      router.push('/app')
+      return
+    }
+
     async function load() {
       try {
-        const data = await fetchDocument(params.id)
+        const data = await fetchDocument(documentId!)
         setDoc(data)
         setTitle(data.title)
         lastSavedTitle.current = data.title
@@ -48,7 +55,7 @@ export default function DocumentDetailClient() {
       }
     }
     load()
-  }, [params.id, router])
+  }, [documentId, router])
 
   const debouncedTitle = useDebounce(title, 1000)
   const debouncedContent = useDebounce(content, 1000)
@@ -189,5 +196,27 @@ export default function DocumentDetailClient() {
         {isBodyEmpty && <InputSourceCards />}
       </main>
     </div>
+  )
+}
+
+export default function DocumentDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white">
+        <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center">
+            <div className="h-10 w-20 bg-gray-100 rounded-full animate-pulse" />
+          </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+          <div className="h-10 w-64 bg-gray-100 rounded-lg animate-pulse mb-6" />
+          <div className="h-6 w-full bg-gray-100 rounded-lg animate-pulse mb-3" />
+          <div className="h-6 w-3/4 bg-gray-100 rounded-lg animate-pulse mb-3" />
+          <div className="h-6 w-1/2 bg-gray-100 rounded-lg animate-pulse" />
+        </main>
+      </div>
+    }>
+      <DocumentDetailContent />
+    </Suspense>
   )
 }

@@ -34,7 +34,7 @@ export function DocumentCard({ document }: DocumentCardProps) {
 
   return (
     <Link
-      href={`/app/documents/${document.id}`}
+      href={`/app/documents?id=${document.id}`}
       className="block h-48 border border-gray-200 rounded-2xl overflow-hidden hover:shadow-md hover:border-gray-300 transition-all group"
     >
       {document.banner_image_url ? (

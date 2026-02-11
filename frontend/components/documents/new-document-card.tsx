@@ -13,7 +13,7 @@ export function NewDocumentCard() {
     setIsCreating(true)
     try {
       const doc = await createDocument()
-      router.push(`/app/documents/${doc.id}`)
+      router.push(`/app/documents?id=${doc.id}`)
     } catch {
       setIsCreating(false)
     }
