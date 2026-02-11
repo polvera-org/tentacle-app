@@ -5,6 +5,7 @@
 # agents
 .cursor
 .claude
+.codex
 .opencode
 .a0proj
 .8x
