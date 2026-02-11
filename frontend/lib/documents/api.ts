@@ -1,7 +1,5 @@
-import { getDocumentsFolder } from '@/lib/settings/documents-folder'
+import { getDocumentsFolder, getDocumentsFolderAsync } from '@/lib/settings/documents-folder'
 import type { Document, DocumentListItem, CreateDocumentPayload, UpdateDocumentPayload } from '@/types/documents'
-
-const NO_FOLDER_ERROR_MESSAGE = 'No documents folder configured. Open Settings and choose a documents folder.'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
 const DEFAULT_TITLE = 'Untitled'
 const TRASH_FOLDER_NAME = '.trash'
@@ -115,13 +113,16 @@ async function getFsApi(): Promise<FsApi> {
   }
 }
 
-function getConfiguredDocumentsFolder(): string {
+async function getConfiguredDocumentsFolder(): Promise<string> {
+  // Try to get user-configured folder first
   const folder = getDocumentsFolder()
-  if (!folder) {
-    throw new Error(NO_FOLDER_ERROR_MESSAGE)
+  if (folder) {
+    return trimTrailingSeparators(folder)
   }
 
-  return trimTrailingSeparators(folder)
+  // Fall back to default folder
+  const defaultFolder = await getDocumentsFolderAsync()
+  return trimTrailingSeparators(defaultFolder)
 }
 
 function trimTrailingSeparators(path: string): string {
@@ -705,7 +706,7 @@ async function listStoredDocumentIds(fs: FsApi, folder: string): Promise<string[
 
 export async function fetchDocuments(): Promise<DocumentListItem[]> {
   try {
-    const folder = getConfiguredDocumentsFolder()
+    const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
     const ids = await listStoredDocumentIds(fs, folder)
 
@@ -736,7 +737,7 @@ export async function fetchDocuments(): Promise<DocumentListItem[]> {
 
 export async function createDocument(payload?: CreateDocumentPayload): Promise<Document> {
   try {
-    const folder = getConfiguredDocumentsFolder()
+    const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
     const timestamp = nowIsoString()
     const id = generateDocumentId()
@@ -764,7 +765,7 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
 
 export async function fetchDocument(id: string): Promise<Document> {
   try {
-    const folder = getConfiguredDocumentsFolder()
+    const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
     const record = await readStoredDocument(fs, folder, id)
     return mapStoredRecordToDocument(record)
@@ -778,7 +779,7 @@ export async function fetchDocument(id: string): Promise<Document> {
 
 export async function updateDocument(id: string, payload: UpdateDocumentPayload): Promise<Document> {
   try {
-    const folder = getConfiguredDocumentsFolder()
+    const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
     const existing = await readStoredDocument(fs, folder, id)
 
@@ -806,7 +807,7 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
 
 export async function deleteDocument(id: string): Promise<void> {
   try {
-    const folder = getConfiguredDocumentsFolder()
+    const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
     const sourcePath = documentPath(folder, id)
     const trashFolder = joinPath(folder, TRASH_FOLDER_NAME)

@@ -8,9 +8,18 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
     "fs:allow-read-dir",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
-    "fs:scope-home-recursive"
+    "fs:allow-rename",
+    "fs:scope-home-recursive",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/.tentacle/**" }
+      ]
+    }
   ]
 }

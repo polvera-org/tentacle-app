@@ -5,6 +5,49 @@ function normalizeFolderPath(path: string): string | null {
   return normalizedPath.length > 0 ? normalizedPath : null
 }
 
+async function getDefaultDocumentsFolder(): Promise<string> {
+  try {
+    const { homeDir, join } = await import('@tauri-apps/api/path')
+    const fs = await import('@tauri-apps/plugin-fs')
+
+    const homePath = await homeDir()
+    const defaultPath = await join(homePath, '.tentacle', 'documents')
+
+    // Ensure the default directory exists
+    const dirExists = await fs.exists(defaultPath)
+    if (!dirExists) {
+      await fs.mkdir(defaultPath, { recursive: true })
+    }
+
+    return defaultPath
+  } catch (error) {
+    console.error('Failed to get default documents folder:', error)
+    throw error
+  }
+}
+
+export async function getDocumentsFolderAsync(): Promise<string> {
+  if (typeof window === 'undefined') {
+    throw new Error('Cannot access documents folder on server side')
+  }
+
+  try {
+    const storedFolderPath = window.localStorage.getItem(DOCUMENTS_FOLDER_STORAGE_KEY)
+    if (storedFolderPath) {
+      const normalized = normalizeFolderPath(storedFolderPath)
+      if (normalized) {
+        return normalized
+      }
+    }
+
+    // No folder configured, use default
+    return await getDefaultDocumentsFolder()
+  } catch (error) {
+    console.error('Failed to get documents folder:', error)
+    throw error
+  }
+}
+
 export function getDocumentsFolder(): string | null {
   if (typeof window === 'undefined') {
     return null
