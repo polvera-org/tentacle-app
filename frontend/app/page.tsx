@@ -15,8 +15,14 @@ export default function Home() {
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <Link
-            href="/login"
+            href="/app"
             className="rounded-lg bg-black px-8 py-3 text-base font-medium text-white transition-colors hover:bg-zinc-800"
+          >
+            Go to app
+          </Link>
+          <Link
+            href="/login"
+            className="rounded-lg border border-black px-8 py-3 text-base font-medium text-black transition-colors hover:bg-zinc-100"
           >
             Login
           </Link>
