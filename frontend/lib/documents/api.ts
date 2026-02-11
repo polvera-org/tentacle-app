@@ -15,9 +15,15 @@ export async function fetchDocuments(): Promise<DocumentListItem[]> {
 
 export async function createDocument(payload?: CreateDocumentPayload): Promise<Document> {
   const supabase = createClient()
+
+  // Get the current user's ID
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('User not authenticated')
+
   const { data, error } = await supabase
     .from('documents')
     .insert({
+      user_id: user.id,
       title: payload?.title || 'Untitled',
       body: '',
     })
