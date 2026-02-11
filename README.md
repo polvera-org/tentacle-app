@@ -47,25 +47,26 @@ Tentacle captures your thoughts via voice, transcribes them instantly, and autom
 - **macOS**: macOS 11 (Big Sur) or higher
 - **Windows**: Windows 10 (version 1809) or higher
 - **Linux**: Ubuntu 20.04, Fedora 36, or equivalent
-- **Network**: Internet connection required for authentication and data sync
+- **Network**: Not required for local document editing. Internet is only needed for optional cloud features.
 
 ## Features
 
 - Rich text document editor with Tiptap
-- User authentication and session persistence
-- Document create, read, update, delete operations
+- Local-first document create, read, update, delete operations
+- Markdown files stored directly in a user-selected folder
+- Soft delete behavior (documents move to `.trash/`)
 - Cross-platform desktop application
 - Fast cold start (under 3 seconds)
-- Secure authentication with Supabase
+- No required login for local document workflows
+- Optional Supabase integration for future cloud sync/auth flows
 
 ## Tech Stack
 
 - **Frontend**: Next.js 16 + TypeScript + Tailwind CSS
 - **Desktop**: Tauri v2 (Rust backend)
-- **Database**: Supabase (PostgreSQL + pgvector)
-- **Auth**: Supabase Auth (client-side)
+- **Local Storage**: Markdown files on local filesystem via Tauri FS plugin
 - **Editor**: Tiptap
-- **Vector Search**: pgvector + embeddings
+- **Optional Cloud (future)**: Supabase (PostgreSQL + pgvector + Auth)
 
 ## Project Structure
 
@@ -101,19 +102,22 @@ cd tentacle-app
 cd frontend
 npm install
 
-# Configure environment variables
-cp .env.example .env.local
-# Edit .env.local with your Supabase credentials
-
 # Run development server
 npm run tauri:dev
 ```
 
 The desktop application will launch with hot reload enabled.
 
+On first launch:
+1. Open **Settings**
+2. Choose a local documents folder
+3. Create/edit documents (saved as `.md` files in that folder)
+
 ### Environment Variables
 
-Copy `.env.example` to `.env.local` in the `frontend/` directory:
+Environment variables are optional for local-first documents mode.
+
+If you want to experiment with Supabase-backed features, copy `.env.example` to `.env.local` in the `frontend/` directory and set:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
@@ -135,8 +139,9 @@ Installers will be generated in `frontend/src-tauri/target/release/bundle/`.
 
 ### Application Won't Launch
 - Check console output for errors
-- Verify environment variables in `.env.local`
-- Ensure internet connection (required for authentication)
+- Verify Rust and Node dependencies are installed
+- If documents do not load, open Settings and select a valid local folder
+- Supabase environment variables are only required for optional cloud features
 - Try running with debug logs: `RUST_LOG=debug npm run tauri:dev`
 
 ### Build Errors on macOS
