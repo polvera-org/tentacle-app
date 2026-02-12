@@ -1,55 +1,5 @@
 'use client'
 
-function VoiceIllustration() {
-  return (
-    <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-      {/* Outer sound waves */}
-      <path
-        d="M68 32c5.523 4.418 9 11.243 9 16s-3.477 11.582-9 16"
-        stroke="#ddd6fe"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-      <path
-        d="M28 32c-5.523 4.418-9 11.243-9 16s3.477 11.582 9 16"
-        stroke="#ddd6fe"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-      {/* Inner sound waves */}
-      <path
-        d="M60 38c3.314 2.65 5.5 6.746 5.5 10s-2.186 7.35-5.5 10"
-        stroke="#c4b5fd"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M36 38c-3.314 2.65-5.5 6.746-5.5 10s2.186 7.35 5.5 10"
-        stroke="#c4b5fd"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-      />
-      {/* Microphone body */}
-      <rect x="40" y="28" width="16" height="28" rx="8" fill="#ede9fe" stroke="#7c3aed" strokeWidth="2" />
-      {/* Microphone stand */}
-      <path d="M48 60v10" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" />
-      <path d="M42 70h12" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" />
-      {/* Microphone base arc */}
-      <path
-        d="M35 48c0 7.18 5.82 13 13 13s13-5.82 13-13"
-        stroke="#7c3aed"
-        strokeWidth="2"
-        strokeLinecap="round"
-        fill="none"
-      />
-      {/* Decorative dots */}
-      <circle cx="44" cy="38" r="1.5" fill="#7c3aed" opacity="0.5" />
-      <circle cx="48" cy="35" r="1.5" fill="#7c3aed" opacity="0.5" />
-      <circle cx="52" cy="38" r="1.5" fill="#7c3aed" opacity="0.5" />
-    </svg>
-  )
-}
-
 function LinkIllustration() {
   return (
     <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
@@ -102,11 +52,6 @@ function FileIllustration() {
 
 const sources = [
   {
-    title: 'Voice',
-    description: 'Capture ephemeral thoughts',
-    Illustration: VoiceIllustration,
-  },
-  {
     title: 'Link',
     description: 'Source any video, article or site as a document',
     Illustration: LinkIllustration,
@@ -120,7 +65,7 @@ const sources = [
 
 export function InputSourceCards() {
   return (
-    <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
       {sources.map((source) => (
         <div
           key={source.title}

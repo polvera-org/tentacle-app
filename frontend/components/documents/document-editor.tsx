@@ -4,6 +4,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import type { JSONContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useRef } from 'react'
+import { VoiceCapture } from '@/components/voice-capture'
 import { EditorToolbar } from './editor-toolbar'
 
 interface DocumentEditorProps {
@@ -50,7 +51,10 @@ export function DocumentEditor({ initialContent, onContentChange }: DocumentEdit
 
   return (
     <div>
-      <EditorToolbar editor={editor} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <EditorToolbar editor={editor} />
+        <VoiceCapture onTranscription={(text) => editor?.chain().focus().insertContent(text).run()} />
+      </div>
       <EditorContent editor={editor} />
     </div>
   )
