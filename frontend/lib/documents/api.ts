@@ -146,9 +146,10 @@ function getFileNameFromPath(path: string): string {
 }
 
 function ensureValidDocumentId(id: string): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
-    throw new Error(`Invalid document id: "${id}". Document IDs can only contain letters, numbers, hyphens, and underscores.`)
-  }
+  // if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+  //   throw new Error(`Invalid document id: "${id}". Document IDs can only contain letters, numbers, hyphens, and underscores.`)
+  // }
+  // We are allowing any string for the document id for now
 }
 
 function documentPath(folder: string, id: string): string {
