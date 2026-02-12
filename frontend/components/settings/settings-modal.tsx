@@ -21,7 +21,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [inputDevice, setInputDeviceState] = useState('')
   const [availableDevices, setAvailableDevices] = useState<InputDeviceOption[]>([])
   const [isPickingFolder, setIsPickingFolder] = useState(false)
-  const [isSavingApiKey, setIsSavingApiKey] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -107,25 +107,17 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }
 
-  async function handleApiKeyBlur() {
-    setIsSavingApiKey(true)
+  async function handleSave() {
+    setIsSaving(true)
     try {
-      await setOpenAIApiKey(apiKey)
+      await Promise.all([
+        setOpenAIApiKey(apiKey),
+        setInputDevice(inputDevice),
+      ])
     } catch (error) {
-      console.error('Failed to save OpenAI API key:', error)
+      console.error('Failed to save settings:', error)
     } finally {
-      setIsSavingApiKey(false)
-    }
-  }
-
-  async function handleInputDeviceChange(event: ChangeEvent<HTMLSelectElement>) {
-    const selectedInputDevice = event.target.value
-    setInputDeviceState(selectedInputDevice)
-
-    try {
-      await setInputDevice(selectedInputDevice)
-    } catch (error) {
-      console.error('Failed to save input device:', error)
+      setIsSaving(false)
     }
   }
 
@@ -138,76 +130,93 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-modal-title"
-        className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 p-6"
+        className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] flex flex-col"
       >
-        <h3 id="settings-modal-title" className="text-lg font-semibold text-gray-900">
-          Settings
-        </h3>
-        <p className="mt-2 text-sm text-gray-500">
-          Configure your documents folder, voice input, and API keys.
-        </p>
-
-        <div className="mt-5 rounded-xl border border-gray-200 p-4">
-          <p className="text-sm font-medium text-gray-900">Documents folder</p>
-          <p className="mt-2 text-sm text-gray-600 break-all">
-            {documentsFolder ?? 'No folder selected'}
+        <div className="p-6 border-b border-gray-200">
+          <h3 id="settings-modal-title" className="text-lg font-semibold text-gray-900">
+            Settings
+          </h3>
+          <p className="mt-2 text-sm text-gray-500">
+            Configure your documents folder, voice input, and API keys.
           </p>
         </div>
 
-        <div className="mt-4 rounded-xl border border-gray-200 p-4">
-          <label htmlFor="openai-api-key" className="text-sm font-medium text-gray-900">
-            OpenAI API Key
-          </label>
-          <p className="mt-1 text-sm text-gray-600">
-            Required for voice transcription. Your key is stored locally.
-          </p>
-          <input
-            id="openai-api-key"
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            onBlur={handleApiKeyBlur}
-            placeholder="sk-..."
-            autoComplete="off"
-            disabled={isSavingApiKey}
-            className="mt-3 h-11 w-full rounded-full border border-gray-300 px-4 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50"
-          />
+        <div className="overflow-y-auto flex-1 p-6">
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="text-sm font-medium text-gray-900 mb-3">Documents folder</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleChooseFolder}
+                disabled={isPickingFolder}
+                className="flex-1 text-sm text-gray-600 break-all hover:text-violet-600 transition-colors text-left focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 rounded disabled:opacity-50 min-w-0"
+              >
+                {documentsFolder ?? 'No folder selected'}
+              </button>
+              <button
+                onClick={handleChooseFolder}
+                disabled={isPickingFolder}
+                className="h-11 px-4 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+              >
+                {isPickingFolder ? 'Choosing...' : 'Choose Folder'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-gray-200 p-4">
+            <label htmlFor="openai-api-key" className="text-sm font-medium text-gray-900">
+              OpenAI API Key
+            </label>
+            <p className="mt-1 text-sm text-gray-600">
+              Required for voice transcription. Your key is stored locally.
+            </p>
+            <input
+              id="openai-api-key"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="sk-..."
+              autoComplete="off"
+              disabled={isSaving}
+              className="mt-3 h-11 w-full rounded-full border border-gray-300 px-4 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50"
+            />
+          </div>
+
+          <div className="mt-4 rounded-xl border border-gray-200 p-4">
+            <label htmlFor="input-device" className="text-sm font-medium text-gray-900">
+              Input Device
+            </label>
+            <select
+              id="input-device"
+              value={inputDevice}
+              onChange={(event) => setInputDeviceState(event.target.value)}
+              disabled={isSaving}
+              className="mt-3 h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              <option value="">Default</option>
+              {availableDevices.map((device) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="mt-4 rounded-xl border border-gray-200 p-4">
-          <label htmlFor="input-device" className="text-sm font-medium text-gray-900">
-            Input Device
-          </label>
-          <select
-            id="input-device"
-            value={inputDevice}
-            onChange={handleInputDeviceChange}
-            className="mt-3 h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
-          >
-            <option value="">Default</option>
-            {availableDevices.map((device) => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mt-6 flex gap-3 justify-end">
+        <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
           <button
             ref={closeButtonRef}
             onClick={onClose}
-            disabled={isPickingFolder}
+            disabled={isSaving}
             className="h-11 px-4 text-sm font-medium text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50"
           >
             Close
           </button>
           <button
-            onClick={handleChooseFolder}
-            disabled={isPickingFolder}
+            onClick={handleSave}
+            disabled={isSaving}
             className="h-11 px-4 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50"
           >
-            {isPickingFolder ? 'Choosing...' : 'Choose Folder'}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
