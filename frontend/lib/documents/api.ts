@@ -26,6 +26,7 @@ interface MarkdownFrontmatter {
   created_at: string
   updated_at: string
   banner_image_url: string | null
+  tags: string[]
 }
 
 interface StoredDocumentRecord {
@@ -145,7 +146,7 @@ function getFileNameFromPath(path: string): string {
   return parts[parts.length - 1] ?? ''
 }
 
-function ensureValidDocumentId(id: string): void {
+function ensureValidDocumentId(): void {
   // if (!/^[A-Za-z0-9_-]+$/.test(id)) {
   //   throw new Error(`Invalid document id: "${id}". Document IDs can only contain letters, numbers, hyphens, and underscores.`)
   // }
@@ -153,7 +154,7 @@ function ensureValidDocumentId(id: string): void {
 }
 
 function documentPath(folder: string, id: string): string {
-  ensureValidDocumentId(id)
+  ensureValidDocumentId()
   return joinPath(folder, `${id}${MARKDOWN_EXTENSION}`)
 }
 
@@ -191,6 +192,76 @@ function unquoteYamlValue(value: string): string {
   }
 
   return value
+}
+
+function sanitizeTag(value: string): string {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\r?\n/g, ' ')
+    .replace(/^#+/, '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .toLowerCase()
+}
+
+function normalizeTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) {
+    return []
+  }
+
+  const uniqueTags = new Set<string>()
+  const normalizedTags: string[] = []
+
+  for (const tag of tags) {
+    if (typeof tag !== 'string') {
+      continue
+    }
+
+    const sanitizedTag = sanitizeTag(tag)
+    if (sanitizedTag.length === 0 || uniqueTags.has(sanitizedTag)) {
+      continue
+    }
+
+    uniqueTags.add(sanitizedTag)
+    normalizedTags.push(sanitizedTag)
+  }
+
+  return normalizedTags
+}
+
+function parseInlineArray(rawValue: string): unknown[] | null {
+  const trimmed = rawValue.trim()
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
+    return null
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    const innerValue = trimmed.slice(1, -1).trim()
+    if (innerValue.length === 0) {
+      return []
+    }
+
+    return innerValue.split(',').map((token) => {
+      const part = token.trim()
+      if ((part.startsWith('"') && part.endsWith('"')) || (part.startsWith("'") && part.endsWith("'"))) {
+        return part
+          .slice(1, -1)
+          .replace(/\\"/g, '"')
+          .replace(/\\'/g, '\'')
+          .replace(/\\\\/g, '\\')
+      }
+
+      return part
+    })
+  }
+}
+
+function parseTagsFrontmatterValue(rawValue: string): string[] {
+  const parsed = parseInlineArray(rawValue)
+  return normalizeTags(parsed ?? [])
 }
 
 function parseFrontmatter(fileContent: string): { metadata: Partial<MarkdownFrontmatter>, markdown: string } {
@@ -236,6 +307,11 @@ function parseFrontmatter(fileContent: string): { metadata: Partial<MarkdownFron
 
     if (key === 'banner_image_url') {
       metadata.banner_image_url = typeof value === 'string' ? value : null
+      continue
+    }
+
+    if (key === 'tags') {
+      metadata.tags = parseTagsFrontmatterValue(rawValue)
     }
   }
 
@@ -277,6 +353,7 @@ function serializeFrontmatter(metadata: MarkdownFrontmatter): string {
   const bannerValue = metadata.banner_image_url === null
     ? 'null'
     : `"${escapeYamlString(metadata.banner_image_url)}"`
+  const tagsValue = JSON.stringify(normalizeTags(metadata.tags))
 
   return [
     '---',
@@ -284,6 +361,7 @@ function serializeFrontmatter(metadata: MarkdownFrontmatter): string {
     `created_at: "${escapeYamlString(metadata.created_at)}"`,
     `updated_at: "${escapeYamlString(metadata.updated_at)}"`,
     `banner_image_url: ${bannerValue}`,
+    `tags: ${tagsValue}`,
     '---',
     '',
   ].join('\n')
@@ -644,6 +722,7 @@ function mapStoredRecordToDocument(record: StoredDocumentRecord): Document {
     user_id: 'local',
     title: record.title,
     body: record.body,
+    tags: normalizeTags(record.metadata.tags),
     banner_image_url: record.metadata.banner_image_url,
     deleted_at: null,
     created_at: record.metadata.created_at,
@@ -677,6 +756,7 @@ async function readStoredDocument(fs: FsApi, folder: string, id: string): Promis
     created_at: parsedMetadata.created_at ?? now,
     updated_at: parsedMetadata.updated_at ?? parsedMetadata.created_at ?? now,
     banner_image_url: parsedMetadata.banner_image_url ?? null,
+    tags: normalizeTags(parsedMetadata.tags ?? []),
   }
 
   return {
@@ -735,10 +815,11 @@ export async function fetchDocuments(): Promise<DocumentListItem[]> {
 
     return documents
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-      .map(({ id, title, body, banner_image_url, created_at, updated_at }) => ({
+      .map(({ id, title, body, tags, banner_image_url, created_at, updated_at }) => ({
         id,
         title,
         body,
+        tags,
         banner_image_url,
         created_at,
         updated_at,
@@ -775,6 +856,7 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
         created_at: timestamp,
         updated_at: timestamp,
         banner_image_url: null,
+        tags: normalizeTags(payload?.tags ?? []),
       },
       title: normalizeTitle(payload?.title),
       body: JSON.stringify(emptyTiptapDoc),
@@ -818,6 +900,9 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
         banner_image_url: payload.banner_image_url !== undefined
           ? payload.banner_image_url
           : existing.metadata.banner_image_url,
+        tags: payload.tags !== undefined
+          ? normalizeTags(payload.tags)
+          : existing.metadata.tags,
       },
       title: payload.title !== undefined ? normalizeTitle(payload.title) : existing.title,
       body: payload.body !== undefined ? payload.body : existing.body,

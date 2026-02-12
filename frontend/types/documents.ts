@@ -3,6 +3,7 @@ export interface Document {
   user_id: string
   title: string
   body: string
+  tags: string[]
   banner_image_url: string | null
   deleted_at: string | null
   created_at: string
@@ -20,6 +21,7 @@ export interface DocumentListItem {
   id: string
   title: string
   body: string
+  tags: string[]
   banner_image_url: string | null
   created_at: string
   updated_at: string
@@ -27,10 +29,12 @@ export interface DocumentListItem {
 
 export interface CreateDocumentPayload {
   title?: string
+  tags?: string[]
 }
 
 export interface UpdateDocumentPayload {
   title?: string
   body?: string
+  tags?: string[]
   banner_image_url?: string | null
 }
