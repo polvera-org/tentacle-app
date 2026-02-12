@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { fetchDocuments } from '@/lib/documents/api'
 import { DocumentCard } from './document-card'
 import { NewDocumentCard } from './new-document-card'
@@ -10,12 +10,26 @@ export function DocumentGrid() {
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const loadDocuments = useCallback(() => {
+    setIsLoading(true)
     fetchDocuments()
       .then(setDocuments)
       .catch(console.error)
       .finally(() => setIsLoading(false))
   }, [])
+
+  useEffect(() => {
+    loadDocuments()
+  }, [loadDocuments])
+
+  useEffect(() => {
+    const handleDocumentsFolderChanged = () => {
+      loadDocuments()
+    }
+
+    window.addEventListener('documents-folder-changed', handleDocumentsFolderChanged)
+    return () => window.removeEventListener('documents-folder-changed', handleDocumentsFolderChanged)
+  }, [loadDocuments])
 
   if (isLoading) {
     return (

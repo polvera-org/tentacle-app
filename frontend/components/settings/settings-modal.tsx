@@ -49,6 +49,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
       await setDocumentsFolder(selectedFolder)
       setDocumentsFolderState(selectedFolder)
+
+      // Notify the app that documents folder has changed
+      window.dispatchEvent(new CustomEvent('documents-folder-changed'))
     } finally {
       setIsPickingFolder(false)
     }
