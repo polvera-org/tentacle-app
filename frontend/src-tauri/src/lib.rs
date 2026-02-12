@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use tauri::Manager;
 use tentacle_core::config::ConfigStore;
 
 #[tauri::command]
