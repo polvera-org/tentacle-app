@@ -1,4 +1,10 @@
 import { getDocumentsFolderAsync } from '@/lib/settings/documents-folder'
+import {
+  deleteCachedDocument,
+  readCachedDocuments,
+  replaceCachedDocuments,
+  upsertCachedDocument,
+} from '@/lib/documents/cache'
 import type { Document, DocumentListItem, CreateDocumentPayload, UpdateDocumentPayload } from '@/types/documents'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
 const DEFAULT_TITLE = 'Untitled'
@@ -730,6 +736,18 @@ function mapStoredRecordToDocument(record: StoredDocumentRecord): Document {
   }
 }
 
+function mapDocumentToListItem(document: Document): DocumentListItem {
+  return {
+    id: document.id,
+    title: document.title,
+    body: document.body,
+    tags: document.tags,
+    banner_image_url: document.banner_image_url,
+    created_at: document.created_at,
+    updated_at: document.updated_at,
+  }
+}
+
 async function readStoredDocument(fs: FsApi, folder: string, id: string): Promise<StoredDocumentRecord> {
   const path = documentPath(folder, id)
   let fileContent: string
@@ -800,7 +818,17 @@ async function listStoredDocumentIds(fs: FsApi, folder: string): Promise<string[
     .filter((id) => id.length > 0)
 }
 
-export async function fetchDocuments(): Promise<DocumentListItem[]> {
+export async function fetchCachedDocuments(): Promise<DocumentListItem[]> {
+  try {
+    const folder = await getConfiguredDocumentsFolder()
+    return await readCachedDocuments(folder)
+  } catch (error) {
+    console.error('[fetchCachedDocuments] Failed to read cache, returning empty list:', error)
+    return []
+  }
+}
+
+export async function reindexDocuments(): Promise<DocumentListItem[]> {
   try {
     const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
@@ -813,25 +841,27 @@ export async function fetchDocuments(): Promise<DocumentListItem[]> {
       }),
     )
 
-    return documents
+    const sortedDocuments = documents
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-      .map(({ id, title, body, tags, banner_image_url, created_at, updated_at }) => ({
-        id,
-        title,
-        body,
-        tags,
-        banner_image_url,
-        created_at,
-        updated_at,
-      }))
+      .map(mapDocumentToListItem)
+
+    try {
+      await replaceCachedDocuments(folder, sortedDocuments)
+    } catch (cacheError) {
+      console.error('[reindexDocuments] Failed to replace cached documents:', cacheError)
+    }
+
+    return sortedDocuments
   } catch (error) {
-    console.error('[fetchDocuments] Failed to fetch documents:', error)
+    console.error('[reindexDocuments] Failed to fetch documents:', error)
     if (error instanceof Error) {
       throw new Error(`Failed to fetch documents: ${error.message}`)
     }
     throw new Error('Failed to fetch documents: Unexpected error')
   }
 }
+
+export const fetchDocuments = reindexDocuments
 
 export async function createDocument(payload?: CreateDocumentPayload): Promise<Document> {
   try {
@@ -863,7 +893,15 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
     }
 
     await writeStoredDocument(fs, folder, record)
-    return mapStoredRecordToDocument(record)
+    const document = mapStoredRecordToDocument(record)
+
+    try {
+      await upsertCachedDocument(folder, document)
+    } catch (cacheError) {
+      console.error(`[createDocument] Failed to upsert cache for "${id}":`, cacheError)
+    }
+
+    return document
   } catch (error) {
     console.error('[createDocument] Failed to create document:', error)
     if (error instanceof Error) {
@@ -909,7 +947,15 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
     }
 
     await writeStoredDocument(fs, folder, updatedRecord)
-    return mapStoredRecordToDocument(updatedRecord)
+    const document = mapStoredRecordToDocument(updatedRecord)
+
+    try {
+      await upsertCachedDocument(folder, document)
+    } catch (cacheError) {
+      console.error(`[updateDocument] Failed to upsert cache for "${id}":`, cacheError)
+    }
+
+    return document
   } catch (error) {
     console.error(`[updateDocument] Failed to update document "${id}":`, error)
     if (error instanceof Error) {
@@ -935,6 +981,12 @@ export async function deleteDocument(id: string): Promise<void> {
     }
 
     await fs.rename(sourcePath, destinationPath)
+
+    try {
+      await deleteCachedDocument(folder, id)
+    } catch (cacheError) {
+      console.error(`[deleteDocument] Failed to delete cache for "${id}":`, cacheError)
+    }
   } catch (error) {
     console.error(`[deleteDocument] Failed to delete document "${id}":`, error)
     if (error instanceof Error) {
