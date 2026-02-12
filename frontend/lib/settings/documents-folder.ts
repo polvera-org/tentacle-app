@@ -1,4 +1,6 @@
-export const DOCUMENTS_FOLDER_STORAGE_KEY = 'tentacle.documents-folder'
+import { invoke } from '@tauri-apps/api/core'
+
+export const CONFIG_KEY_DOCUMENTS_FOLDER = 'documents_folder'
 
 function normalizeFolderPath(path: string): string | null {
   const normalizedPath = path.trim()
@@ -32,42 +34,33 @@ export async function getDocumentsFolderAsync(): Promise<string> {
   }
 
   try {
-    const storedFolderPath = window.localStorage.getItem(DOCUMENTS_FOLDER_STORAGE_KEY)
-    if (storedFolderPath) {
-      const normalized = normalizeFolderPath(storedFolderPath)
+    const configuredFolderPath = await invoke<string | null>('get_config', {
+      key: CONFIG_KEY_DOCUMENTS_FOLDER,
+    })
+
+    if (configuredFolderPath !== null) {
+      const normalized = normalizeFolderPath(configuredFolderPath)
       if (normalized) {
         return normalized
       }
     }
 
-    // No folder configured, use default
-    return await getDefaultDocumentsFolder()
+    const defaultPath = await getDefaultDocumentsFolder()
+    await invoke('set_config', {
+      key: CONFIG_KEY_DOCUMENTS_FOLDER,
+      value: defaultPath,
+    })
+
+    return defaultPath
   } catch (error) {
     console.error('Failed to get documents folder:', error)
     throw error
   }
 }
 
-export function getDocumentsFolder(): string | null {
+export async function setDocumentsFolder(path: string): Promise<void> {
   if (typeof window === 'undefined') {
-    return null
-  }
-
-  try {
-    const storedFolderPath = window.localStorage.getItem(DOCUMENTS_FOLDER_STORAGE_KEY)
-    if (!storedFolderPath) {
-      return null
-    }
-
-    return normalizeFolderPath(storedFolderPath)
-  } catch {
-    return null
-  }
-}
-
-export function setDocumentsFolder(path: string): void {
-  if (typeof window === 'undefined') {
-    return
+    throw new Error('Cannot set documents folder on server side')
   }
 
   const normalizedPath = normalizeFolderPath(path)
@@ -75,11 +68,10 @@ export function setDocumentsFolder(path: string): void {
     return
   }
 
-  try {
-    window.localStorage.setItem(DOCUMENTS_FOLDER_STORAGE_KEY, normalizedPath)
-  } catch {
-    // Ignore storage failures (private mode, quota errors, etc.)
-  }
+  await invoke('set_config', {
+    key: CONFIG_KEY_DOCUMENTS_FOLDER,
+    value: normalizedPath,
+  })
 }
 
 export async function pickDocumentsFolder(): Promise<string | null> {

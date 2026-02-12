@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { getDocumentsFolder, getDocumentsFolderAsync, pickDocumentsFolder, setDocumentsFolder } from '@/lib/settings/documents-folder'
+import { getDocumentsFolderAsync, pickDocumentsFolder, setDocumentsFolder } from '@/lib/settings/documents-folder'
 
 interface SettingsModalProps {
   open: boolean
@@ -12,28 +12,17 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const [documentsFolder, setDocumentsFolderState] = useState<string | null>(null)
   const [isPickingFolder, setIsPickingFolder] = useState(false)
-  const [isLoadingFolder, setIsLoadingFolder] = useState(false)
 
   useEffect(() => {
     if (!open) return
 
     const loadFolder = async () => {
-      setIsLoadingFolder(true)
       try {
-        // First check if user has manually set a folder
-        const storedFolder = getDocumentsFolder()
-        if (storedFolder) {
-          setDocumentsFolderState(storedFolder)
-        } else {
-          // Get the default folder (will be created if needed)
-          const defaultFolder = await getDocumentsFolderAsync()
-          setDocumentsFolderState(defaultFolder)
-        }
+        const folder = await getDocumentsFolderAsync()
+        setDocumentsFolderState(folder)
       } catch (error) {
         console.error('Failed to load documents folder:', error)
         setDocumentsFolderState(null)
-      } finally {
-        setIsLoadingFolder(false)
       }
     }
 
@@ -58,7 +47,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       const selectedFolder = await pickDocumentsFolder()
       if (!selectedFolder) return
 
-      setDocumentsFolder(selectedFolder)
+      await setDocumentsFolder(selectedFolder)
       setDocumentsFolderState(selectedFolder)
     } finally {
       setIsPickingFolder(false)

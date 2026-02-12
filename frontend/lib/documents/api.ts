@@ -1,4 +1,4 @@
-import { getDocumentsFolder, getDocumentsFolderAsync } from '@/lib/settings/documents-folder'
+import { getDocumentsFolderAsync } from '@/lib/settings/documents-folder'
 import type { Document, DocumentListItem, CreateDocumentPayload, UpdateDocumentPayload } from '@/types/documents'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
 const DEFAULT_TITLE = 'Untitled'
@@ -110,15 +110,8 @@ async function getFsApi(): Promise<FsApi> {
 }
 
 async function getConfiguredDocumentsFolder(): Promise<string> {
-  // Try to get user-configured folder first
-  const folder = getDocumentsFolder()
-  if (folder) {
-    return trimTrailingSeparators(folder)
-  }
-
-  // Fall back to default folder
-  const defaultFolder = await getDocumentsFolderAsync()
-  return trimTrailingSeparators(defaultFolder)
+  const folder = await getDocumentsFolderAsync()
+  return trimTrailingSeparators(folder)
 }
 
 function trimTrailingSeparators(path: string): string {
@@ -709,7 +702,7 @@ async function ensureDocumentsFolderExists(fs: FsApi, folder: string): Promise<v
     if (!exists) {
       await fs.mkdir(folder, { recursive: true })
     }
-  } catch (error) {
+  } catch {
     // If exists check fails, try creating anyway - mkdir with recursive is idempotent
     await fs.mkdir(folder, { recursive: true })
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import type { DocumentListItem } from '@/types/documents'
 
 interface DocumentCardProps {
@@ -39,9 +40,12 @@ export function DocumentCard({ document }: DocumentCardProps) {
     >
       {document.banner_image_url ? (
         <div className="h-20 bg-gray-100 overflow-hidden">
-          <img
+          <Image
             src={document.banner_image_url}
             alt=""
+            width={640}
+            height={160}
+            unoptimized
             className="w-full h-full object-cover"
           />
         </div>
