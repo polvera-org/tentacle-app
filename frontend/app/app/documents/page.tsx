@@ -8,7 +8,7 @@ import { DocumentEditor } from '@/components/documents/document-editor'
 import { InputSourceCards } from '@/components/documents/input-source-cards'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Document } from '@/types/documents'
-import type { JSONContent } from '@tiptap/react'
+import type { JSONContent, Editor } from '@tiptap/react'
 
 function DocumentDetailContent() {
   const searchParams = useSearchParams()
@@ -26,6 +26,7 @@ function DocumentDetailContent() {
   const titleHasBeenFocused = useRef(false)
   const lastSavedTitle = useRef('')
   const lastSavedBody = useRef('')
+  const editorRef = useRef<Editor | null>(null)
 
   useEffect(() => {
     if (!documentId) {
@@ -92,6 +93,10 @@ function DocumentDetailContent() {
 
   const handleContentChange = useCallback((newContent: JSONContent) => {
     setContent(newContent)
+  }, [])
+
+  const handleVoiceTranscription = useCallback((text: string) => {
+    editorRef.current?.chain().focus().insertContent(text).run()
   }, [])
 
   const handleDelete = async () => {
@@ -191,9 +196,11 @@ function DocumentDetailContent() {
         <DocumentEditor
           initialContent={content}
           onContentChange={handleContentChange}
+          editorRef={editorRef}
+          showVoiceCapture={!isBodyEmpty}
         />
 
-        {isBodyEmpty && <InputSourceCards />}
+        {isBodyEmpty && <InputSourceCards onVoiceTranscription={handleVoiceTranscription} />}
       </main>
     </div>
   )

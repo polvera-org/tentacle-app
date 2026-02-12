@@ -1,7 +1,7 @@
 'use client'
 
 import { useEditor, EditorContent } from '@tiptap/react'
-import type { JSONContent } from '@tiptap/react'
+import type { JSONContent, Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useRef } from 'react'
 import { VoiceCapture } from '@/components/voice-capture'
@@ -10,9 +10,11 @@ import { EditorToolbar } from './editor-toolbar'
 interface DocumentEditorProps {
   initialContent: JSONContent | null
   onContentChange: (content: JSONContent) => void
+  editorRef?: React.MutableRefObject<Editor | null>
+  showVoiceCapture?: boolean
 }
 
-export function DocumentEditor({ initialContent, onContentChange }: DocumentEditorProps) {
+export function DocumentEditor({ initialContent, onContentChange, editorRef, showVoiceCapture = true }: DocumentEditorProps) {
   const onContentChangeRef = useRef(onContentChange)
 
   useEffect(() => {
@@ -47,13 +49,24 @@ export function DocumentEditor({ initialContent, onContentChange }: DocumentEdit
     }
   }, [editor, initialContent])
 
+  useEffect(() => {
+    if (editorRef) {
+      editorRef.current = editor
+      return () => {
+        editorRef.current = null
+      }
+    }
+  }, [editor, editorRef])
+
   if (!editor) return null
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="space-y-3">
         <EditorToolbar editor={editor} />
-        <VoiceCapture onTranscription={(text) => editor?.chain().focus().insertContent(text).run()} />
+        {showVoiceCapture && (
+          <VoiceCapture onTranscription={(text) => editor?.chain().focus().insertContent(text).run()} />
+        )}
       </div>
       <EditorContent editor={editor} />
     </div>
