@@ -10,6 +10,36 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import type { Document } from '@/types/documents'
 import type { JSONContent, Editor } from '@tiptap/react'
 
+function normalizeTags(tags: string[]): string[] {
+  const uniqueTags = new Set<string>()
+
+  for (const rawTag of tags) {
+    const normalizedTag = rawTag
+      .trim()
+      .replace(/^#+/, '')
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+
+    if (!normalizedTag) continue
+    uniqueTags.add(normalizedTag)
+  }
+
+  return Array.from(uniqueTags)
+}
+
+function parseTagsInput(input: string): string[] {
+  return normalizeTags(input.split(/\s+/))
+}
+
+function formatTagsInput(tags: string[]): string {
+  return normalizeTags(tags).map((tag) => `#${tag}`).join(' ')
+}
+
+function areTagsEqual(first: string[], second: string[]): boolean {
+  if (first.length !== second.length) return false
+  return first.every((tag, index) => tag === second[index])
+}
+
 function DocumentDetailContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -17,6 +47,7 @@ function DocumentDetailContent() {
 
   const [doc, setDoc] = useState<Document | null>(null)
   const [title, setTitle] = useState('')
+  const [tagsInput, setTagsInput] = useState('')
   const [content, setContent] = useState<JSONContent | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -26,6 +57,7 @@ function DocumentDetailContent() {
   const titleHasBeenFocused = useRef(false)
   const lastSavedTitle = useRef('')
   const lastSavedBody = useRef('')
+  const lastSavedTags = useRef<string[]>([])
   const editorRef = useRef<Editor | null>(null)
 
   useEffect(() => {
@@ -37,10 +69,17 @@ function DocumentDetailContent() {
     async function load() {
       try {
         const data = await fetchDocument(documentId!)
-        setDoc(data)
+        const normalizedTags = normalizeTags(data.tags ?? [])
+
+        setDoc({
+          ...data,
+          tags: normalizedTags,
+        })
         setTitle(data.title)
+        setTagsInput(formatTagsInput(normalizedTags))
         lastSavedTitle.current = data.title
         lastSavedBody.current = data.body
+        lastSavedTags.current = normalizedTags
         if (data.body) {
           try {
             setContent(JSON.parse(data.body))
@@ -59,6 +98,7 @@ function DocumentDetailContent() {
   }, [documentId, router])
 
   const debouncedTitle = useDebounce(title, 1000)
+  const debouncedTagsInput = useDebounce(tagsInput, 1000)
   const debouncedContent = useDebounce(content, 1000)
 
   // Auto-save title
@@ -90,6 +130,28 @@ function DocumentDetailContent() {
       })
       .finally(() => setIsSaving(false))
   }, [debouncedContent]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save tags
+  useEffect(() => {
+    if (isInitialLoad.current || !doc) return
+
+    const parsedTags = parseTagsInput(debouncedTagsInput)
+    if (areTagsEqual(parsedTags, lastSavedTags.current)) return
+
+    setIsSaving(true)
+    updateDocument(doc.id, { tags: parsedTags })
+      .then((updated) => {
+        const normalizedUpdatedTags = normalizeTags(updated.tags ?? parsedTags)
+
+        setDoc({
+          ...updated,
+          tags: normalizedUpdatedTags,
+        })
+        lastSavedTags.current = normalizedUpdatedTags
+        setTagsInput(formatTagsInput(normalizedUpdatedTags))
+      })
+      .finally(() => setIsSaving(false))
+  }, [debouncedTagsInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleContentChange = useCallback((newContent: JSONContent) => {
     setContent(newContent)
@@ -191,6 +253,13 @@ function DocumentDetailContent() {
           className={`w-full text-3xl font-bold placeholder-gray-300 border-none outline-none bg-transparent mb-4 ${
             title === 'Untitled' ? 'text-gray-400' : 'text-gray-900'
           }`}
+        />
+        <input
+          type="text"
+          value={tagsInput}
+          onChange={(event) => setTagsInput(event.target.value)}
+          placeholder="#tag_one #tag_two"
+          className="w-full h-9 px-3 text-xs text-gray-700 placeholder-gray-400 border border-gray-200 rounded-lg bg-gray-50/60 focus:bg-white focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-violet-500/40 mb-4"
         />
 
         <DocumentEditor
