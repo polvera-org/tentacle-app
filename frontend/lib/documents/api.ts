@@ -6,11 +6,22 @@ import {
   replaceCachedDocuments,
   upsertCachedDocument,
 } from '@/lib/documents/cache'
+import {
+  deleteCachedDocumentEmbedding,
+  readCachedEmbeddingMetadata,
+  upsertCachedDocumentEmbedding,
+} from '@/lib/documents/embeddings-cache'
+import {
+  LOCAL_EMBEDDING_MODEL_ID,
+  embedTextLocally,
+  extractPlainTextFromTiptapBody,
+} from '@/lib/ai/local-embeddings'
 import type {
   Document,
   DocumentListItem,
   DocumentTagUsage,
   CreateDocumentPayload,
+  DocumentEmbeddingMetadata,
   UpdateDocumentPayload,
 } from '@/types/documents'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
@@ -66,6 +77,13 @@ interface TiptapNode {
 interface TiptapDocument {
   type: 'doc'
   content: TiptapNode[]
+}
+
+interface EmbeddingSyncDocument {
+  id: string
+  title: string
+  body: string
+  updated_at: string
 }
 
 async function checkTauriAvailability(): Promise<void> {
@@ -825,6 +843,152 @@ async function listStoredDocumentIds(fs: FsApi, folder: string): Promise<string[
     .filter((id) => id.length > 0)
 }
 
+function buildEmbeddingSourceText(title: string, body: string): string {
+  const normalizedTitle = normalizeTitle(title)
+  const plainBody = extractPlainTextFromTiptapBody(body)
+
+  if (plainBody.length === 0) {
+    return normalizedTitle
+  }
+
+  return `${normalizedTitle}\n\n${plainBody}`
+}
+
+function toEmbeddingMetadataLookup(
+  metadataList: DocumentEmbeddingMetadata[],
+): Map<string, DocumentEmbeddingMetadata> {
+  const lookup = new Map<string, DocumentEmbeddingMetadata>()
+  for (const metadata of metadataList) {
+    if (metadata.model !== LOCAL_EMBEDDING_MODEL_ID) {
+      continue
+    }
+
+    lookup.set(metadata.document_id, metadata)
+  }
+
+  return lookup
+}
+
+async function computeSha256Hex(value: string): Promise<string> {
+  if (
+    typeof globalThis.crypto === 'undefined' ||
+    typeof globalThis.crypto.subtle === 'undefined' ||
+    typeof TextEncoder === 'undefined'
+  ) {
+    throw new Error('Web Crypto API is unavailable in this runtime.')
+  }
+
+  const input = new TextEncoder().encode(value)
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', input)
+  const hashBytes = new Uint8Array(digest)
+  let hash = ''
+
+  for (const byte of hashBytes) {
+    hash += byte.toString(16).padStart(2, '0')
+  }
+
+  return hash
+}
+
+async function computeEmbeddingContentHash(sourceText: string): Promise<string> {
+  return await computeSha256Hex(`${sourceText}\u0000${LOCAL_EMBEDDING_MODEL_ID}`)
+}
+
+async function upsertLocalDocumentEmbedding(
+  folder: string,
+  document: EmbeddingSyncDocument,
+  metadataLookup?: Map<string, DocumentEmbeddingMetadata>,
+): Promise<void> {
+  const sourceText = buildEmbeddingSourceText(document.title, document.body)
+  const contentHash = await computeEmbeddingContentHash(sourceText)
+  const existingMetadata = metadataLookup?.get(document.id)
+
+  if (
+    existingMetadata &&
+    existingMetadata.model === LOCAL_EMBEDDING_MODEL_ID &&
+    existingMetadata.content_hash === contentHash
+  ) {
+    return
+  }
+
+  if (!metadataLookup) {
+    const metadataList = await readCachedEmbeddingMetadata(folder)
+    const matchedMetadata = metadataList.find((metadata) => {
+      return metadata.document_id === document.id && metadata.model === LOCAL_EMBEDDING_MODEL_ID
+    })
+
+    if (matchedMetadata?.content_hash === contentHash) {
+      return
+    }
+  }
+
+  const vector = await embedTextLocally(sourceText)
+  if (vector.length === 0) {
+    return
+  }
+
+  await upsertCachedDocumentEmbedding(folder, {
+    document_id: document.id,
+    model: LOCAL_EMBEDDING_MODEL_ID,
+    content_hash: contentHash,
+    vector,
+    updated_at: document.updated_at,
+  })
+}
+
+function scheduleDocumentEmbeddingSync(folder: string, document: EmbeddingSyncDocument): void {
+  void upsertLocalDocumentEmbedding(folder, document).catch((error) => {
+    console.error(`[embedding-sync] Failed to sync embedding for "${document.id}":`, error)
+  })
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) {
+    return
+  }
+
+  const workerCount = Math.max(1, Math.min(concurrency, items.length))
+  let nextIndex = 0
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      await handler(items[currentIndex])
+    }
+  })
+
+  await Promise.all(workers)
+}
+
+function scheduleBatchDocumentEmbeddingSync(
+  folder: string,
+  documents: EmbeddingSyncDocument[],
+): void {
+  void (async () => {
+    const metadataLookup = toEmbeddingMetadataLookup(await readCachedEmbeddingMetadata(folder))
+    await runWithConcurrency(documents, 2, async (document) => {
+      try {
+        await upsertLocalDocumentEmbedding(folder, document, metadataLookup)
+      } catch (error) {
+        console.error(`[embedding-sync] Failed to sync embedding for "${document.id}":`, error)
+      }
+    })
+  })().catch((error) => {
+    console.error('[embedding-sync] Failed to schedule batched embedding sync:', error)
+  })
+}
+
+function scheduleDocumentEmbeddingDelete(folder: string, documentId: string): void {
+  void deleteCachedDocumentEmbedding(folder, documentId).catch((error) => {
+    console.error(`[embedding-sync] Failed to delete embedding for "${documentId}":`, error)
+  })
+}
+
 export async function fetchCachedDocuments(): Promise<DocumentListItem[]> {
   try {
     const folder = await getConfiguredDocumentsFolder()
@@ -867,6 +1031,8 @@ export async function reindexDocuments(): Promise<DocumentListItem[]> {
     } catch (cacheError) {
       console.error('[reindexDocuments] Failed to replace cached documents:', cacheError)
     }
+
+    scheduleBatchDocumentEmbeddingSync(folder, sortedDocuments)
 
     return sortedDocuments
   } catch (error) {
@@ -917,6 +1083,8 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
     } catch (cacheError) {
       console.error(`[createDocument] Failed to upsert cache for "${id}":`, cacheError)
     }
+
+    scheduleDocumentEmbeddingSync(folder, document)
 
     return document
   } catch (error) {
@@ -972,6 +1140,8 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
       console.error(`[updateDocument] Failed to upsert cache for "${id}":`, cacheError)
     }
 
+    scheduleDocumentEmbeddingSync(folder, document)
+
     return document
   } catch (error) {
     console.error(`[updateDocument] Failed to update document "${id}":`, error)
@@ -1004,6 +1174,8 @@ export async function deleteDocument(id: string): Promise<void> {
     } catch (cacheError) {
       console.error(`[deleteDocument] Failed to delete cache for "${id}":`, cacheError)
     }
+
+    scheduleDocumentEmbeddingDelete(folder, id)
   } catch (error) {
     console.error(`[deleteDocument] Failed to delete document "${id}":`, error)
     if (error instanceof Error) {
