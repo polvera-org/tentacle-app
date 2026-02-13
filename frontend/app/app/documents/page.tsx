@@ -2,13 +2,21 @@
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { fetchDocument, updateDocument, deleteDocument } from '@/lib/documents/api'
+import { suggestTagsWithOpenAI } from '@/lib/ai/auto-tagging'
+import { extractPlainTextFromTiptapBody } from '@/lib/ai/local-embeddings'
+import { fetchCachedDocuments, fetchDocument, semanticSearchDocuments, updateDocument, deleteDocument } from '@/lib/documents/api'
 import { useDebounce } from '@/hooks/use-debounce'
 import { DocumentEditor } from '@/components/documents/document-editor'
 import { InputSourceCards } from '@/components/documents/input-source-cards'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { getOpenAIApiKey } from '@/lib/settings/openai-config'
 import type { Document } from '@/types/documents'
 import type { JSONContent, Editor } from '@tiptap/react'
+
+const AUTO_TAGGING_MIN_TEXT_LENGTH = 40
+const AUTO_TAGGING_SEARCH_LENGTH = 2000
+const AUTO_TAGGING_NOTE_TEXT_LENGTH = 4000
+const AUTO_TAGGING_NEIGHBOR_LIMIT = 12
 
 function normalizeTags(tags: string[]): string[] {
   const uniqueTags = new Set<string>()
@@ -32,6 +40,32 @@ function areTagsEqual(first: string[], second: string[]): boolean {
   return first.every((tag, index) => tag === second[index])
 }
 
+function serializeContent(content: JSONContent | null, fallback: string): string {
+  if (!content) {
+    return fallback
+  }
+
+  try {
+    return JSON.stringify(content)
+  } catch {
+    return fallback
+  }
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function buildAutoTaggingText(title: string, serializedBody: string): string {
+  const normalizedTitle = normalizeText(title)
+  const plainBody = extractPlainTextFromTiptapBody(serializedBody)
+  const normalizedBody = normalizeText(plainBody)
+
+  return [normalizedTitle, normalizedBody]
+    .filter((part) => part.length > 0)
+    .join('\n')
+}
+
 function DocumentDetailContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -44,6 +78,7 @@ function DocumentDetailContent() {
   const [content, setContent] = useState<JSONContent | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isAutoTagging, setIsAutoTagging] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const isInitialLoad = useRef(true)
@@ -51,8 +86,20 @@ function DocumentDetailContent() {
   const lastSavedTitle = useRef('')
   const lastSavedBody = useRef('')
   const lastSavedTags = useRef<string[]>([])
+  const lastAutoTaggingFingerprint = useRef('')
+  const autoTaggingRunId = useRef(0)
+  const activeDocumentId = useRef<string | null>(null)
+  const tagsRef = useRef<string[]>([])
   const editorRef = useRef<Editor | null>(null)
   const tagInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    tagsRef.current = tags
+  }, [tags])
+
+  useEffect(() => {
+    activeDocumentId.current = doc?.id ?? null
+  }, [doc?.id])
 
   useEffect(() => {
     if (!documentId) {
@@ -138,6 +185,97 @@ function DocumentDetailContent() {
       })
       .finally(() => setIsSaving(false))
   }, [tags]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isInitialLoad.current || !doc) return
+
+    const serializedBody = serializeContent(debouncedContent, lastSavedBody.current)
+    const autoTaggingText = buildAutoTaggingText(debouncedTitle, serializedBody)
+    const fingerprint = `${doc.id}::${normalizeText(debouncedTitle)}::${serializedBody}`
+
+    if (fingerprint === lastAutoTaggingFingerprint.current) return
+    lastAutoTaggingFingerprint.current = fingerprint
+
+    if (autoTaggingText.length < AUTO_TAGGING_MIN_TEXT_LENGTH) return
+
+    const currentRunId = autoTaggingRunId.current + 1
+    autoTaggingRunId.current = currentRunId
+    const targetDocumentId = doc.id
+    setIsAutoTagging(true)
+
+    const runAutoTagging = async () => {
+      const apiKey = await getOpenAIApiKey()
+      if (!apiKey) {
+        return
+      }
+
+      const semanticQuery = autoTaggingText.slice(0, AUTO_TAGGING_SEARCH_LENGTH)
+      const [neighborHits, cachedDocuments] = await Promise.all([
+        semanticSearchDocuments(semanticQuery, {
+          limit: AUTO_TAGGING_NEIGHBOR_LIMIT,
+          exclude_document_id: targetDocumentId,
+        }),
+        fetchCachedDocuments(),
+      ])
+
+      const cachedTagsById = new Map(cachedDocuments.map((cached) => [cached.id, cached.tags]))
+      const candidateTags = normalizeTags(
+        neighborHits.flatMap((neighbor) => cachedTagsById.get(neighbor.document_id) ?? []),
+      )
+
+      const suggestedTags = await suggestTagsWithOpenAI({
+        noteText: autoTaggingText.slice(0, AUTO_TAGGING_NOTE_TEXT_LENGTH),
+        candidateTags,
+        apiKey,
+      })
+
+      if (currentRunId !== autoTaggingRunId.current) {
+        return
+      }
+      if (activeDocumentId.current !== targetDocumentId) {
+        return
+      }
+
+      if (suggestedTags.length === 0) {
+        return
+      }
+
+      const currentTags = tagsRef.current
+      const mergedTags = normalizeTags([...currentTags, ...suggestedTags])
+      if (areTagsEqual(mergedTags, currentTags)) {
+        return
+      }
+
+      setIsSaving(true)
+      try {
+        const updated = await updateDocument(targetDocumentId, { tags: mergedTags })
+        if (currentRunId !== autoTaggingRunId.current) {
+          return
+        }
+        if (activeDocumentId.current !== targetDocumentId) {
+          return
+        }
+
+        const normalizedUpdatedTags = normalizeTags(updated.tags ?? mergedTags)
+        lastSavedTags.current = normalizedUpdatedTags
+        tagsRef.current = normalizedUpdatedTags
+        setTags(normalizedUpdatedTags)
+        setDoc({ ...updated, tags: normalizedUpdatedTags })
+      } finally {
+        setIsSaving(false)
+      }
+    }
+
+    void runAutoTagging()
+      .catch((error) => {
+        console.error(`[auto-tagging] Failed for document "${targetDocumentId}":`, error)
+      })
+      .finally(() => {
+        if (currentRunId === autoTaggingRunId.current) {
+          setIsAutoTagging(false)
+        }
+      })
+  }, [debouncedTitle, debouncedContent, doc?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addTag = useCallback((value: string) => {
     const normalized = normalizeTags([value])
@@ -231,6 +369,9 @@ function DocumentDetailContent() {
             </span>
           </button>
           <div className="flex items-center gap-3">
+            <span className={`text-sm text-gray-400 transition-opacity ${isAutoTagging ? 'opacity-100' : 'opacity-0'}`}>
+              Tagging...
+            </span>
             <span className={`text-sm text-gray-400 transition-opacity ${isSaving ? 'opacity-100' : 'opacity-0'}`}>
               Saving...
             </span>
@@ -273,7 +414,6 @@ function DocumentDetailContent() {
           }`}
         />
         <div className="mb-4">
-          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
           <div
             className="w-full min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-500/20 cursor-text transition-all"
             onClick={() => tagInputRef.current?.focus()}

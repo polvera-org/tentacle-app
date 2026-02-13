@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getDocumentsFolderAsync, pickDocumentsFolder, setDocumentsFolder } from '@/lib/settings/documents-folder'
 import { getInputDevice, getOpenAIApiKey, setInputDevice, setOpenAIApiKey } from '@/lib/settings/openai-config'
 
@@ -167,7 +167,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               OpenAI API Key
             </label>
             <p className="mt-1 text-sm text-gray-600">
-              Required for voice transcription. Your key is stored locally.
+              Required for voice transcription and auto-tagging. Your key is stored locally.
             </p>
             <input
               id="openai-api-key"
