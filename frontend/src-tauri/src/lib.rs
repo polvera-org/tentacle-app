@@ -3,7 +3,8 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tentacle_core::config::ConfigStore;
 use tentacle_core::document_cache::{
-    CachedDocumentPayload, CachedDocumentTagPayload, DocumentCacheStore,
+    CachedDocumentEmbeddingMetadataPayload, CachedDocumentEmbeddingPayload, CachedDocumentPayload,
+    CachedDocumentTagPayload, DocumentCacheStore, SemanticSearchHitPayload,
 };
 
 #[tauri::command]
@@ -82,6 +83,68 @@ fn replace_cached_documents(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn get_cached_document_embedding_metadata(
+    documents_folder: String,
+) -> Result<Vec<CachedDocumentEmbeddingMetadataPayload>, String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .list_document_embedding_metadata()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn upsert_cached_document_embedding(
+    documents_folder: String,
+    embedding: CachedDocumentEmbeddingPayload,
+) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .upsert_document_embedding(&embedding)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn delete_cached_document_embedding(
+    documents_folder: String,
+    document_id: String,
+) -> Result<(), String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .delete_document_embedding(&document_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn replace_cached_document_embeddings(
+    documents_folder: String,
+    embeddings: Vec<CachedDocumentEmbeddingPayload>,
+) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .replace_document_embeddings(&embeddings)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn semantic_search_cached_documents(
+    documents_folder: String,
+    query_vector: Vec<f32>,
+    limit: usize,
+    min_score: f32,
+    exclude_document_id: Option<String>,
+) -> Result<Vec<SemanticSearchHitPayload>, String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .semantic_search_documents(query_vector, limit, min_score, exclude_document_id)
+        .map_err(|err| err.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -93,7 +156,12 @@ pub fn run() {
             get_cached_document_tags,
             upsert_cached_document,
             delete_cached_document,
-            replace_cached_documents
+            replace_cached_documents,
+            get_cached_document_embedding_metadata,
+            upsert_cached_document_embedding,
+            delete_cached_document_embedding,
+            replace_cached_document_embeddings,
+            semantic_search_cached_documents
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
