@@ -147,13 +147,16 @@ async function getFeatureExtractionPipeline(): Promise<FeatureExtractionPipeline
     return pipelinePromise
   }
 
-  toast.loading('Downloading AI model (first time only…)', {
+  toast.loading('Loading local AI Model', {
     id: MODEL_DOWNLOAD_TOAST_ID,
     duration: Infinity,
   })
 
   pipelinePromise = (async () => {
-    const { pipeline } = await import('@xenova/transformers')
+    const { pipeline, env } = await import('@xenova/transformers')
+    env.allowLocalModels = false
+    env.useFS = false
+    env.useFSCache = false
     const extractor = await pipeline('feature-extraction', LOCAL_EMBEDDING_MODEL_ID, {
       progress_callback: handlePipelineProgress,
     })
