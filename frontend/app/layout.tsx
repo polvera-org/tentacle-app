@@ -37,7 +37,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-white text-gray-900 min-h-screen">
+      <body className="antialiased bg-white text-gray-900 h-full">
         <AuthProvider>
           {children}
           <AppToaster />

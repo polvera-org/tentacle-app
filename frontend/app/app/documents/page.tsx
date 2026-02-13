@@ -355,24 +355,26 @@ function DocumentDetailContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="h-full flex flex-col bg-white">
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center">
             <div className="h-10 w-20 bg-gray-100 rounded-full animate-pulse" />
           </div>
         </header>
-        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-          <div className="h-10 w-64 bg-gray-100 rounded-lg animate-pulse mb-6" />
-          <div className="h-6 w-full bg-gray-100 rounded-lg animate-pulse mb-3" />
-          <div className="h-6 w-3/4 bg-gray-100 rounded-lg animate-pulse mb-3" />
-          <div className="h-6 w-1/2 bg-gray-100 rounded-lg animate-pulse" />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+            <div className="h-10 w-64 bg-gray-100 rounded-lg animate-pulse mb-6" />
+            <div className="h-6 w-full bg-gray-100 rounded-lg animate-pulse mb-3" />
+            <div className="h-6 w-3/4 bg-gray-100 rounded-lg animate-pulse mb-3" />
+            <div className="h-6 w-1/2 bg-gray-100 rounded-lg animate-pulse" />
+          </div>
         </main>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="h-full flex flex-col bg-white">
       <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <button
@@ -415,7 +417,8 @@ function DocumentDetailContent() {
         isLoading={isDeleting}
       />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         <input
           type="text"
           value={title}
@@ -494,6 +497,7 @@ function DocumentDetailContent() {
         />
 
         {isBodyEmpty && <InputSourceCards onVoiceTranscription={handleVoiceTranscription} />}
+        </div>
       </main>
     </div>
   )
@@ -502,17 +506,19 @@ function DocumentDetailContent() {
 export default function DocumentDetailPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-white">
+      <div className="h-full flex flex-col bg-white">
         <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center">
             <div className="h-10 w-20 bg-gray-100 rounded-full animate-pulse" />
           </div>
         </header>
-        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-          <div className="h-10 w-64 bg-gray-100 rounded-lg animate-pulse mb-6" />
-          <div className="h-6 w-full bg-gray-100 rounded-lg animate-pulse mb-3" />
-          <div className="h-6 w-3/4 bg-gray-100 rounded-lg animate-pulse mb-3" />
-          <div className="h-6 w-1/2 bg-gray-100 rounded-lg animate-pulse" />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+            <div className="h-10 w-64 bg-gray-100 rounded-lg animate-pulse mb-6" />
+            <div className="h-6 w-full bg-gray-100 rounded-lg animate-pulse mb-3" />
+            <div className="h-6 w-3/4 bg-gray-100 rounded-lg animate-pulse mb-3" />
+            <div className="h-6 w-1/2 bg-gray-100 rounded-lg animate-pulse" />
+          </div>
         </main>
       </div>
     }>
