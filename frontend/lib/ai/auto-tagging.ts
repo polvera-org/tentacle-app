@@ -42,9 +42,9 @@ function normalizeTags(tags: string[]): string[] {
       .trim()
       .replace(/^#+/, '')
       .toLowerCase()
-      .replace(/\s+/g, '_')
+      .replace(/[_\s]+/g, '-')
 
-    if (!normalizedTag) continue
+    if (!normalizedTag || normalizedTag.length < 3) continue
     uniqueTags.add(normalizedTag)
   }
 
@@ -160,7 +160,7 @@ export async function suggestTagsWithOpenAI(input: SuggestTagsWithOpenAIInput): 
           {
             role: 'system',
             content:
-              'You generate concise note tags. Respond with a JSON array only. Max 5 tags. Each tag must be lowercase with underscores, no leading #.',
+              'You generate concise note tags. Respond with a JSON array only. Max 5 tags. Each tag must be lowercase kebab-case (hyphens only, no underscores, no spaces, no leading #). Reuse existing tags exactly as given whenever they fit. Only invent a new tag when none of the existing tags apply.',
           },
           {
             role: 'user',
@@ -168,7 +168,7 @@ export async function suggestTagsWithOpenAI(input: SuggestTagsWithOpenAIInput): 
               'Suggest relevant tags for this note.',
               'Prefer candidate tags when they fit.',
               '',
-              `Candidate tags: ${JSON.stringify(normalizedCandidateTags)}`,
+              `Existing workspace tags (reuse these): ${JSON.stringify(normalizedCandidateTags)}`,
               `Note text: ${JSON.stringify(truncatedNoteText)}`,
             ].join('\n'),
           },

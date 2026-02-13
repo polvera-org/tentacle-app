@@ -229,9 +229,29 @@ function DocumentDetailContent() {
       ])
 
       const cachedTagsById = new Map(cachedDocuments.map((cached) => [cached.id, cached.tags]))
-      const candidateTags = normalizeTags(
-        neighborHits.flatMap((neighbor) => cachedTagsById.get(neighbor.document_id) ?? []),
+
+      // Count tag frequency across all workspace docs
+      const tagFrequency = new Map<string, number>()
+      for (const doc of cachedDocuments) {
+        for (const tag of normalizeTags(doc.tags)) {
+          tagFrequency.set(tag, (tagFrequency.get(tag) ?? 0) + 1)
+        }
+      }
+
+      // Neighbor tags (context-relevant) get highest priority
+      const neighborTagSet = new Set(
+        normalizeTags(neighborHits.flatMap((n) => cachedTagsById.get(n.document_id) ?? [])),
       )
+
+      // Sort: neighbor tags first (by frequency), then rest by frequency
+      const candidateTags = [...tagFrequency.entries()]
+        .sort(([aTag, aCount], [bTag, bCount]) => {
+          const aIsNeighbor = neighborTagSet.has(aTag) ? 1 : 0
+          const bIsNeighbor = neighborTagSet.has(bTag) ? 1 : 0
+          if (bIsNeighbor !== aIsNeighbor) return bIsNeighbor - aIsNeighbor
+          return bCount - aCount
+        })
+        .map(([tag]) => tag)
 
       const suggestedTags = await suggestTagsWithOpenAI({
         noteText: autoTaggingText.slice(0, AUTO_TAGGING_NOTE_TEXT_LENGTH),
