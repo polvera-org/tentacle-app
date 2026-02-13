@@ -214,18 +214,13 @@ impl DocumentCacheStore {
         Ok(store)
     }
 
-    /// If documents_fts is empty but documents has rows, bulk-populate the FTS index.
+    /// Ensure the FTS5 index is consistent with the documents table.
+    ///
+    /// On first run after migration (the FTS table was just created from schema), the
+    /// FTS5 shadow data table has only its header block (count ≤ 1) while `documents`
+    /// may already have rows. In that case, and whenever an integrity check fails, we
+    /// rebuild the index from the content table using the FTS5 `'rebuild'` command.
     fn rebuild_fts_index_if_empty(&self) -> Result<(), DocumentCacheError> {
-        let fts_count: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM documents_fts",
-            [],
-            |row| row.get(0),
-        )?;
-
-        if fts_count > 0 {
-            return Ok(());
-        }
-
         let doc_count: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM documents",
             [],
@@ -236,10 +231,35 @@ impl DocumentCacheStore {
             return Ok(());
         }
 
-        self.connection.execute_batch(
-            "INSERT INTO documents_fts(rowid, title, body)
-             SELECT rowid, title, body FROM documents",
-        )?;
+        // `documents_fts_data` is the FTS5 B-tree data shadow table. It always has at
+        // least 1 row (the averages block at id=1). Additional rows mean the index has
+        // been populated. If it is ≤ 1 the index has never been built (migration path).
+        let fts_data_count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM documents_fts_data",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        if fts_data_count <= 1 {
+            // Index has never been built — rebuild from content table.
+            self.connection.execute_batch(
+                "INSERT INTO documents_fts(documents_fts) VALUES('rebuild')",
+            )?;
+            return Ok(());
+        }
+
+        // Index has data — run an integrity check and rebuild if it is inconsistent.
+        // This recovers databases that were corrupted by a previous bad migration.
+        let integrity_ok = self
+            .connection
+            .execute("INSERT INTO documents_fts(documents_fts) VALUES('integrity-check')", [])
+            .is_ok();
+
+        if !integrity_ok {
+            self.connection.execute_batch(
+                "INSERT INTO documents_fts(documents_fts) VALUES('rebuild')",
+            )?;
+        }
 
         Ok(())
     }
@@ -345,14 +365,26 @@ impl DocumentCacheStore {
         documents: &[CachedDocumentPayload],
     ) -> Result<(), DocumentCacheError> {
         let transaction = self.connection.transaction()?;
-        // Delete FTS index first to avoid per-row trigger overhead on DELETE FROM documents.
-        transaction.execute("DELETE FROM documents_fts", [])?;
+        // Do NOT touch documents_fts directly here. For a content FTS5 table,
+        // directly deleting rows (`DELETE FROM documents_fts`) and then also
+        // having the delete trigger fire per-row corrupts the shadow B-tree
+        // (tombstones inserted into an already-empty index).
+        // Instead, let the triggers run and then use `'rebuild'` at the end to
+        // atomically reconstruct the FTS index from the content table.
         transaction.execute("DELETE FROM documents", [])?;
 
         for document in documents {
             Self::upsert_document_record(&transaction, document)?;
             Self::insert_document_tags(&transaction, document)?;
         }
+
+        // Rebuild the FTS5 index from the content table inside the same transaction.
+        // This discards any intermediate shadow-table state from the triggers above
+        // and produces a clean, consistent index.
+        transaction.execute(
+            "INSERT INTO documents_fts(documents_fts) VALUES('rebuild')",
+            [],
+        )?;
 
         transaction.commit()?;
         Ok(())
