@@ -33,6 +33,26 @@ export interface DocumentTagUsage {
   usage_count: number
 }
 
+export interface DocumentEmbeddingMetadata {
+  document_id: string
+  model: string
+  content_hash: string
+  updated_at: string
+}
+
+export interface CachedDocumentEmbeddingPayload {
+  document_id: string
+  model: string
+  content_hash: string
+  vector: number[]
+  updated_at: string
+}
+
+export interface SemanticSearchHit {
+  document_id: string
+  score: number
+}
+
 export interface CreateDocumentPayload {
   title?: string
   tags?: string[]
