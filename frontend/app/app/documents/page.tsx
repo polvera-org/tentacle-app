@@ -79,6 +79,7 @@ function DocumentDetailContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isAutoTagging, setIsAutoTagging] = useState(false)
+  const [isTagsLocked, setIsTagsLocked] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const isInitialLoad = useRef(true)
@@ -88,6 +89,7 @@ function DocumentDetailContent() {
   const lastSavedTags = useRef<string[]>([])
   const lastAutoTaggingFingerprint = useRef('')
   const autoTaggingRunId = useRef(0)
+  const isTagsLockedRef = useRef(false)
   const activeDocumentId = useRef<string | null>(null)
   const tagsRef = useRef<string[]>([])
   const editorRef = useRef<Editor | null>(null)
@@ -96,6 +98,10 @@ function DocumentDetailContent() {
   useEffect(() => {
     tagsRef.current = tags
   }, [tags])
+
+  useEffect(() => {
+    isTagsLockedRef.current = isTagsLocked
+  }, [isTagsLocked])
 
   useEffect(() => {
     activeDocumentId.current = doc?.id ?? null
@@ -121,6 +127,9 @@ function DocumentDetailContent() {
         lastSavedTitle.current = data.title
         lastSavedBody.current = data.body
         lastSavedTags.current = normalizedTags
+        lastAutoTaggingFingerprint.current = `${data.id}::${normalizeText(data.title)}::${data.body}`
+        setIsTagsLocked(data.tags_locked ?? false)
+        isTagsLockedRef.current = data.tags_locked ?? false
         if (data.body) {
           try {
             setContent(JSON.parse(data.body))
@@ -188,6 +197,7 @@ function DocumentDetailContent() {
 
   useEffect(() => {
     if (isInitialLoad.current || !doc) return
+    if (isTagsLockedRef.current) return
 
     const serializedBody = serializeContent(debouncedContent, lastSavedBody.current)
     const autoTaggingText = buildAutoTaggingText(debouncedTitle, serializedBody)
@@ -328,6 +338,14 @@ function DocumentDetailContent() {
     }
   }
 
+  const handleToggleTagsLock = useCallback(async () => {
+    if (!doc) return
+    const newLocked = !isTagsLocked
+    setIsTagsLocked(newLocked)
+    isTagsLockedRef.current = newLocked
+    await updateDocument(doc.id, { tags_locked: newLocked })
+  }, [doc, isTagsLocked])
+
   const isBodyEmpty = !content ||
     !content.content ||
     content.content.length === 0 ||
@@ -414,37 +432,56 @@ function DocumentDetailContent() {
           }`}
         />
         <div className="mb-4">
-          <div
-            className="w-full min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-500/20 cursor-text transition-all"
-            onClick={() => tagInputRef.current?.focus()}
-          >
-            {tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 text-xs font-medium font-mono bg-violet-100 text-violet-800 rounded-md"
-              >
-                #{tag}
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
-                  className="flex items-center justify-center w-3.5 h-3.5 rounded-sm text-violet-500 hover:text-violet-900 hover:bg-violet-200 transition-colors focus:outline-none"
-                  aria-label={`Remove tag ${tag}`}
+          <div className="flex items-center gap-1.5">
+            <div
+              className="flex-1 min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-500/20 cursor-text transition-all"
+              onClick={() => tagInputRef.current?.focus()}
+            >
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 text-xs font-medium font-mono bg-violet-100 text-violet-800 rounded-md"
                 >
-                  <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-                    <path d="M2 2l6 6M8 2l-6 6" />
-                  </svg>
-                </button>
-              </span>
-            ))}
-            <input
-              ref={tagInputRef}
-              type="text"
-              value={tagInputValue}
-              onChange={handleTagInputChange}
-              onKeyDown={handleTagKeyDown}
-              placeholder={tags.length === 0 ? 'Add tag...' : ''}
-              className="flex-1 min-w-[80px] text-xs text-gray-700 placeholder-gray-400 bg-transparent outline-none py-0.5"
-            />
+                  #{tag}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
+                    className="flex items-center justify-center w-3.5 h-3.5 rounded-sm text-violet-500 hover:text-violet-900 hover:bg-violet-200 transition-colors focus:outline-none"
+                    aria-label={`Remove tag ${tag}`}
+                  >
+                    <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                      <path d="M2 2l6 6M8 2l-6 6" />
+                    </svg>
+                  </button>
+                </span>
+              ))}
+              <input
+                ref={tagInputRef}
+                type="text"
+                value={tagInputValue}
+                onChange={handleTagInputChange}
+                onKeyDown={handleTagKeyDown}
+                placeholder={tags.length === 0 ? 'Add tag...' : ''}
+                className="flex-1 min-w-[80px] text-xs text-gray-700 placeholder-gray-400 bg-transparent outline-none py-0.5"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleTagsLock}
+              title={isTagsLocked ? 'Tags locked. Click to enable auto-tagging' : 'Lock tags from auto-tagging'}
+              className="flex-shrink-0 p-1.5 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-1 rounded"
+              aria-label={isTagsLocked ? 'Unlock tags' : 'Lock tags'}
+            >
+              {isTagsLocked ? (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+              )}
+            </button>
           </div>
           <p className="text-xs text-gray-400 text-right mt-1">Press Enter or comma to add tag</p>
         </div>

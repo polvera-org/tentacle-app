@@ -53,6 +53,7 @@ interface MarkdownFrontmatter {
   updated_at: string
   banner_image_url: string | null
   tags: string[]
+  tags_locked?: boolean
 }
 
 interface StoredDocumentRecord {
@@ -345,6 +346,11 @@ function parseFrontmatter(fileContent: string): { metadata: Partial<MarkdownFron
 
     if (key === 'tags') {
       metadata.tags = parseTagsFrontmatterValue(rawValue)
+      continue
+    }
+
+    if (key === 'tags_locked') {
+      metadata.tags_locked = value === 'true'
     }
   }
 
@@ -395,6 +401,7 @@ function serializeFrontmatter(metadata: MarkdownFrontmatter): string {
     `updated_at: "${escapeYamlString(metadata.updated_at)}"`,
     `banner_image_url: ${bannerValue}`,
     `tags: ${tagsValue}`,
+    `tags_locked: ${metadata.tags_locked === true ? 'true' : 'false'}`,
     '---',
     '',
   ].join('\n')
@@ -756,6 +763,7 @@ function mapStoredRecordToDocument(record: StoredDocumentRecord): Document {
     title: record.title,
     body: record.body,
     tags: normalizeTags(record.metadata.tags),
+    tags_locked: record.metadata.tags_locked ?? false,
     banner_image_url: record.metadata.banner_image_url,
     deleted_at: null,
     created_at: record.metadata.created_at,
@@ -769,6 +777,7 @@ function mapDocumentToListItem(document: Document): DocumentListItem {
     title: document.title,
     body: document.body,
     tags: document.tags,
+    tags_locked: document.tags_locked,
     banner_image_url: document.banner_image_url,
     created_at: document.created_at,
     updated_at: document.updated_at,
@@ -802,6 +811,7 @@ async function readStoredDocument(fs: FsApi, folder: string, id: string): Promis
     updated_at: parsedMetadata.updated_at ?? parsedMetadata.created_at ?? now,
     banner_image_url: parsedMetadata.banner_image_url ?? null,
     tags: normalizeTags(parsedMetadata.tags ?? []),
+    tags_locked: parsedMetadata.tags_locked ?? false,
   }
 
   return {
@@ -1156,6 +1166,9 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
         tags: payload.tags !== undefined
           ? normalizeTags(payload.tags)
           : existing.metadata.tags,
+        tags_locked: payload.tags_locked !== undefined
+          ? payload.tags_locked
+          : existing.metadata.tags_locked,
       },
       title: payload.title !== undefined ? normalizeTitle(payload.title) : existing.title,
       body: payload.body !== undefined ? payload.body : existing.body,
