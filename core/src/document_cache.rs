@@ -48,6 +48,13 @@ pub struct CachedDocumentPayload {
     pub tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedDocumentTagPayload {
+    pub tag: String,
+    pub last_used_at: String,
+    pub usage_count: i64,
+}
+
 pub struct DocumentCacheStore {
     connection: Connection,
 }
@@ -116,6 +123,30 @@ impl DocumentCacheStore {
         }
 
         Ok(documents)
+    }
+
+    pub fn list_document_tags(&self) -> Result<Vec<CachedDocumentTagPayload>, DocumentCacheError> {
+        let mut statement = self.connection.prepare(
+            "SELECT
+               tag,
+               MAX(created_at) AS last_used_at,
+               COUNT(*) AS usage_count
+             FROM document_tags
+             WHERE TRIM(tag) <> ''
+             GROUP BY tag
+             ORDER BY last_used_at DESC, tag ASC",
+        )?;
+
+        let rows = statement.query_map([], |row| {
+            Ok(CachedDocumentTagPayload {
+                tag: row.get(0)?,
+                last_used_at: row.get(1)?,
+                usage_count: row.get(2)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(DocumentCacheError::from)
     }
 
     pub fn upsert_document(

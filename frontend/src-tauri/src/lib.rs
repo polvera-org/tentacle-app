@@ -2,7 +2,9 @@ use std::path::Path;
 use std::sync::Mutex;
 use tauri::Manager;
 use tentacle_core::config::ConfigStore;
-use tentacle_core::document_cache::{CachedDocumentPayload, DocumentCacheStore};
+use tentacle_core::document_cache::{
+    CachedDocumentPayload, CachedDocumentTagPayload, DocumentCacheStore,
+};
 
 #[tauri::command]
 fn get_config(
@@ -36,6 +38,15 @@ fn get_cached_documents(documents_folder: String) -> Result<Vec<CachedDocumentPa
     let store =
         DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
     store.list_documents().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn get_cached_document_tags(
+    documents_folder: String,
+) -> Result<Vec<CachedDocumentTagPayload>, String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store.list_document_tags().map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -79,6 +90,7 @@ pub fn run() {
             set_config,
             get_all_config,
             get_cached_documents,
+            get_cached_document_tags,
             upsert_cached_document,
             delete_cached_document,
             replace_cached_documents
