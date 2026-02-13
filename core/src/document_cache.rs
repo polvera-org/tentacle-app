@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_document_embeddings_meta_content_hash ON document
 CREATE INDEX IF NOT EXISTS idx_document_embeddings_meta_document_id ON document_embeddings_meta(document_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS document_embeddings_vec USING vec0(
-  embedding 384-dimensional float vector
+  embedding float[384]
 );
 
 CREATE TRIGGER IF NOT EXISTS trg_document_embeddings_meta_delete_vec
@@ -112,7 +112,10 @@ pub struct DocumentCacheStore {
 
 fn initialize_sqlite_vec_extension() {
     SQLITE_VEC_EXTENSION_INIT.call_once(|| unsafe {
-        sqlite_vec::sqlite3_auto_extension(Some(sqlite_vec::sqlite3_vec_init));
+        // sqlite-vec exports `sqlite3_vec_init` as a raw symbol; sqlite expects a generic extension entrypoint.
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
     });
 }
 
@@ -532,4 +535,67 @@ pub enum DocumentCacheError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Validation(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_path() -> std::path::PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("tentacle-cache-test-{timestamp}"))
+    }
+
+    #[test]
+    fn initializes_vec_schema_and_executes_embedding_search() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store = DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+
+            let document = CachedDocumentPayload {
+                id: "doc-1".to_string(),
+                user_id: "user-1".to_string(),
+                title: "Test".to_string(),
+                body: "Body".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:00Z".to_string(),
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+                tags: vec!["tag".to_string()],
+            };
+            store
+                .upsert_document(&document)
+                .expect("document upsert should succeed");
+
+            let embedding = CachedDocumentEmbeddingPayload {
+                document_id: document.id.clone(),
+                model: "test-model".to_string(),
+                content_hash: "hash".to_string(),
+                vector: vec![0.0; EMBEDDING_VECTOR_DIMENSIONS],
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+            };
+            store
+                .upsert_document_embedding(&embedding)
+                .expect("embedding upsert should succeed");
+
+            let hits = store
+                .semantic_search_documents(
+                    vec![0.0; EMBEDDING_VECTOR_DIMENSIONS],
+                    1,
+                    0.0,
+                    None,
+                )
+                .expect("semantic search should succeed");
+
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].document_id, document.id);
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }

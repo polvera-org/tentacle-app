@@ -3384,6 +3384,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlite-vec"
+version = "0.0.1-alpha.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6af0664bd8b269848df9383b66109d124226ddc10415b6783c790f98a74f386f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3883,6 +3892,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sqlite-vec",
  "thiserror 2.0.18",
 ]
 
