@@ -1,13 +1,16 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { fetchCachedDocuments, reindexDocuments } from '@/lib/documents/api'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { fetchCachedDocuments, fetchCachedDocumentTags, reindexDocuments } from '@/lib/documents/api'
 import { DocumentCard } from './document-card'
+import { DocumentTagFilters } from './document-tag-filters'
 import { NewDocumentCard } from './new-document-card'
-import type { DocumentListItem } from '@/types/documents'
+import type { DocumentListItem, DocumentTagUsage } from '@/types/documents'
 
 export function DocumentGrid() {
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
+  const [documentTags, setDocumentTags] = useState<DocumentTagUsage[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [isInitialCacheLoading, setIsInitialCacheLoading] = useState(true)
   const [isSynchronizing, setIsSynchronizing] = useState(false)
   const requestIdRef = useRef(0)
@@ -18,6 +21,39 @@ export function DocumentGrid() {
     documentsCountRef.current = documents.length
   }, [documents.length])
 
+  const applyDocumentTags = useCallback((tags: DocumentTagUsage[]) => {
+    setDocumentTags(tags)
+
+    const availableTags = new Set(tags.map(({ tag }) => tag))
+    setSelectedTags((currentSelectedTags) => {
+      const nextSelectedTags = currentSelectedTags.filter((tag) => availableTags.has(tag))
+      return nextSelectedTags.length === currentSelectedTags.length ? currentSelectedTags : nextSelectedTags
+    })
+  }, [])
+
+  const handleToggleTag = useCallback((tag: string) => {
+    setSelectedTags((currentSelectedTags) => {
+      if (currentSelectedTags.includes(tag)) {
+        return currentSelectedTags.filter((selectedTag) => selectedTag !== tag)
+      }
+
+      return [...currentSelectedTags, tag]
+    })
+  }, [])
+
+  const handleClearTags = useCallback(() => {
+    setSelectedTags([])
+  }, [])
+
+  const filteredDocuments = useMemo(() => {
+    if (selectedTags.length === 0) {
+      return documents
+    }
+
+    const selectedTagSet = new Set(selectedTags)
+    return documents.filter((document) => document.tags.some((tag) => selectedTagSet.has(tag)))
+  }, [documents, selectedTags])
+
   const loadDocuments = useCallback(async () => {
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
@@ -27,12 +63,17 @@ export function DocumentGrid() {
     }
 
     try {
-      const cachedDocuments = await fetchCachedDocuments()
+      const [cachedDocuments, cachedDocumentTags] = await Promise.all([
+        fetchCachedDocuments(),
+        fetchCachedDocumentTags(),
+      ])
+
       if (requestId !== requestIdRef.current) {
         return
       }
 
       setDocuments(cachedDocuments)
+      applyDocumentTags(cachedDocumentTags)
     } catch (error) {
       console.error(error)
     } finally {
@@ -55,6 +96,13 @@ export function DocumentGrid() {
       }
 
       setDocuments(indexedDocuments)
+
+      const refreshedDocumentTags = await fetchCachedDocumentTags()
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+
+      applyDocumentTags(refreshedDocumentTags)
     } catch (error) {
       console.error(error)
     } finally {
@@ -62,7 +110,7 @@ export function DocumentGrid() {
         setIsSynchronizing(false)
       }
     }
-  }, [])
+  }, [applyDocumentTags])
 
   useEffect(() => {
     loadDocuments()
@@ -100,9 +148,15 @@ export function DocumentGrid() {
           Synchronizing...
         </p>
       ) : null}
+      <DocumentTagFilters
+        tags={documentTags}
+        selectedTags={selectedTags}
+        onToggleTag={handleToggleTag}
+        onClearTags={handleClearTags}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         <NewDocumentCard />
-        {documents.map((doc) => (
+        {filteredDocuments.map((doc) => (
           <DocumentCard key={doc.id} document={doc} />
         ))}
       </div>

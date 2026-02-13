@@ -87,7 +87,7 @@ export function DocumentTagFilters({
       <button
         type="button"
         onClick={onClearTags}
-        className="min-h-[34px] rounded-full border border-gray-200 bg-gray-50 px-3 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+        className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
       >
         {selectedTags.length > 0 ? 'Clear' : 'All'}
       </button>
@@ -100,7 +100,7 @@ export function DocumentTagFilters({
             key={tagUsage.tag}
             type="button"
             onClick={() => onToggleTag(tagUsage.tag)}
-            className={`min-h-[34px] rounded-full border px-3 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${
+            className={`rounded-full border px-2.5 py-1 font-mono text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${
               isSelected
                 ? 'border-gray-300 bg-gray-200 text-gray-900'
                 : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-800'
@@ -117,13 +117,16 @@ export function DocumentTagFilters({
           onClick={toggleMore}
           aria-haspopup="dialog"
           aria-expanded={isMoreOpen}
-          className={`min-h-[34px] rounded-full border px-3 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${
+          className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${
             isMoreOpen
               ? 'border-gray-300 bg-gray-100 text-gray-900'
               : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-800'
           }`}
         >
-          +more tags
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          more tags
         </button>
 
         {isMoreOpen ? (
