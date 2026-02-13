@@ -25,7 +25,6 @@ import type {
   CreateDocumentPayload,
   DocumentEmbeddingMetadata,
   HybridSearchHit,
-  SemanticSearchHit,
   UpdateDocumentPayload,
 } from '@/types/documents'
 import { preprocessQuery } from '@/lib/ai/query-preprocessor'
@@ -64,6 +63,17 @@ interface StoredDocumentRecord {
   metadata: MarkdownFrontmatter
   title: string
   body: string
+}
+
+interface StoredMarkdownFile {
+  name: string
+  path: string
+  titleFromFileName: string
+}
+
+interface StoredDocumentReadResult {
+  record: StoredDocumentRecord
+  rewriteMetadata: boolean
 }
 
 interface TiptapMark {
@@ -184,16 +194,33 @@ function getFileNameFromPath(path: string): string {
   return parts[parts.length - 1] ?? ''
 }
 
-function ensureValidDocumentId(): void {
-  // if (!/^[A-Za-z0-9_-]+$/.test(id)) {
-  //   throw new Error(`Invalid document id: "${id}". Document IDs can only contain letters, numbers, hyphens, and underscores.`)
-  // }
-  // We are allowing any string for the document id for now
+function isMarkdownFileName(name: string): boolean {
+  return name.toLowerCase().endsWith(MARKDOWN_EXTENSION)
 }
 
-function documentPath(folder: string, id: string): string {
-  ensureValidDocumentId()
-  return joinPath(folder, `${id}${MARKDOWN_EXTENSION}`)
+function removeMarkdownExtension(name: string): string {
+  if (!isMarkdownFileName(name)) {
+    return name
+  }
+
+  return name.slice(0, -MARKDOWN_EXTENSION.length)
+}
+
+function normalizeDocumentId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim()
+  if (normalized.length === 0) {
+    return null
+  }
+
+  if (/[\u0000-\u001F\u007F]/.test(normalized)) {
+    return null
+  }
+
+  return normalized
 }
 
 function normalizeTitle(title: string | undefined): string {
@@ -208,11 +235,28 @@ function nowIsoString(): string {
 }
 
 function generateDocumentId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
   }
 
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function sanitizeTitleForFileName(title: string | undefined): string {
+  const normalized = normalizeTitle(title)
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/[<>:"/\\|?*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+
+  const fallback = normalized.length > 0 ? normalized : DEFAULT_TITLE
+  const reservedStem = fallback.split('.')[0]?.toUpperCase() ?? fallback.toUpperCase()
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(reservedStem)) {
+    return `${fallback} (1)`
+  }
+
+  return fallback
 }
 
 function normalizeLineEndings(value: string | undefined | null): string {
@@ -361,9 +405,10 @@ function parseFrontmatter(fileContent: string): { metadata: Partial<MarkdownFron
   return { metadata, markdown }
 }
 
-function extractTitleAndMarkdownBody(markdown: string): { title: string, bodyMarkdown: string } {
+function extractMarkdownBody(markdown: string, fileNameTitle: string): string {
   const normalized = normalizeLineEndings(markdown)
   const lines = normalized.split('\n')
+  const normalizedFileTitle = normalizeTitle(fileNameTitle).toLowerCase()
 
   let index = 0
   while (index < lines.length && lines[index].trim().length === 0) {
@@ -373,23 +418,19 @@ function extractTitleAndMarkdownBody(markdown: string): { title: string, bodyMar
   if (index < lines.length) {
     const headingMatch = lines[index].match(/^#\s+(.+)$/)
     if (headingMatch) {
-      const title = normalizeTitle(headingMatch[1])
-      let bodyStartIndex = index + 1
-      while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim().length === 0) {
-        bodyStartIndex += 1
-      }
+      const headingTitle = normalizeTitle(headingMatch[1]).toLowerCase()
+      if (headingTitle === normalizedFileTitle) {
+        let bodyStartIndex = index + 1
+        while (bodyStartIndex < lines.length && lines[bodyStartIndex].trim().length === 0) {
+          bodyStartIndex += 1
+        }
 
-      return {
-        title,
-        bodyMarkdown: lines.slice(bodyStartIndex).join('\n').trim(),
+        return lines.slice(bodyStartIndex).join('\n').trim()
       }
     }
   }
 
-  return {
-    title: DEFAULT_TITLE,
-    bodyMarkdown: normalized.trim(),
-  }
+  return normalized.trim()
 }
 
 function serializeFrontmatter(metadata: MarkdownFrontmatter): string {
@@ -788,45 +829,160 @@ function mapDocumentToListItem(document: Document): DocumentListItem {
   }
 }
 
-async function readStoredDocument(fs: FsApi, folder: string, id: string): Promise<StoredDocumentRecord> {
-  const path = documentPath(folder, id)
+function normalizePathForComparison(path: string): string {
+  return path.replace(/[\\/]+/g, '/').toLowerCase()
+}
+
+function resolveTimestampValue(
+  value: unknown,
+  fallback: string,
+): { value: string, usedFallback: boolean } {
+  if (typeof value !== 'string') {
+    return { value: fallback, usedFallback: true }
+  }
+
+  const normalized = value.trim()
+  if (normalized.length === 0 || Number.isNaN(Date.parse(normalized))) {
+    return { value: fallback, usedFallback: true }
+  }
+
+  return { value: normalized, usedFallback: false }
+}
+
+function parseStoredMarkdownFile(filePath: string): StoredMarkdownFile {
+  const name = getFileNameFromPath(filePath)
+  return {
+    name,
+    path: filePath,
+    titleFromFileName: normalizeTitle(removeMarkdownExtension(name)),
+  }
+}
+
+async function listStoredMarkdownFiles(fs: FsApi, folder: string): Promise<StoredMarkdownFile[]> {
+  const entries = await fs.readDir(folder, { recursive: false })
+
+  return entries
+    .filter((entry) => entry.isDirectory !== true)
+    .map((entry) => entry.path ?? (entry.name ? joinPath(folder, entry.name) : ''))
+    .filter((path) => path.length > 0)
+    .map(parseStoredMarkdownFile)
+    .filter((file) => isMarkdownFileName(file.name))
+    .sort((a, b) => a.path.localeCompare(b.path))
+}
+
+async function resolveUniqueTitle(
+  fs: FsApi,
+  folder: string,
+  requestedTitle: string | undefined,
+  options?: { excludePath?: string },
+): Promise<string> {
+  const baseTitle = sanitizeTitleForFileName(requestedTitle)
+  const files = await listStoredMarkdownFiles(fs, folder)
+  const excludedPathKey = options?.excludePath ? normalizePathForComparison(options.excludePath) : null
+  const occupiedNames = new Set(
+    files
+      .filter((file) => normalizePathForComparison(file.path) !== excludedPathKey)
+      .map((file) => file.name.toLowerCase()),
+  )
+
+  let candidate = baseTitle
+  let counter = 2
+  while (occupiedNames.has(`${candidate}${MARKDOWN_EXTENSION}`.toLowerCase())) {
+    candidate = `${baseTitle} (${counter})`
+    counter += 1
+  }
+
+  return candidate
+}
+
+async function readStoredDocumentFromFile(
+  fs: FsApi,
+  file: StoredMarkdownFile,
+  options?: { fallbackId?: string },
+): Promise<StoredDocumentReadResult> {
   let fileContent: string
 
   try {
-    fileContent = await fs.readTextFile(path)
+    fileContent = await fs.readTextFile(file.path)
   } catch (error) {
-    console.error(`[readStoredDocument] Failed to read file "${id}":`, error)
-    throw new Error(`Document "${id}" was not found.`)
+    console.error(`[readStoredDocument] Failed to read file "${file.path}":`, error)
+    throw new Error(`Document file "${file.name}" was not found.`)
   }
 
-  // Validate file content is a string
   if (typeof fileContent !== 'string') {
-    console.error(`[readStoredDocument] Invalid file content type for "${id}":`, typeof fileContent)
-    throw new Error(`Document "${id}" has invalid content format.`)
+    console.error(`[readStoredDocument] Invalid file content type for "${file.path}":`, typeof fileContent)
+    throw new Error(`Document file "${file.name}" has invalid content format.`)
   }
 
   const { metadata: parsedMetadata, markdown } = parseFrontmatter(fileContent)
-  const { title, bodyMarkdown } = extractTitleAndMarkdownBody(markdown)
   const now = nowIsoString()
 
+  const parsedId = normalizeDocumentId(parsedMetadata.id)
+  const fallbackId = normalizeDocumentId(options?.fallbackId)
+  const finalId = parsedId ?? fallbackId ?? generateDocumentId()
+
+  const createdAtResolution = resolveTimestampValue(parsedMetadata.created_at, now)
+  const updatedAtResolution = resolveTimestampValue(parsedMetadata.updated_at, createdAtResolution.value)
+
   const metadata: MarkdownFrontmatter = {
-    id: parsedMetadata.id ?? id,
-    created_at: parsedMetadata.created_at ?? now,
-    updated_at: parsedMetadata.updated_at ?? parsedMetadata.created_at ?? now,
+    id: finalId,
+    created_at: createdAtResolution.value,
+    updated_at: updatedAtResolution.value,
     banner_image_url: parsedMetadata.banner_image_url ?? null,
     tags: normalizeTags(parsedMetadata.tags ?? []),
     tags_locked: parsedMetadata.tags_locked ?? false,
   }
 
   return {
-    metadata,
-    title,
-    body: markdownToTiptapBody(bodyMarkdown),
+    record: {
+      metadata,
+      title: file.titleFromFileName,
+      body: markdownToTiptapBody(extractMarkdownBody(markdown, file.titleFromFileName)),
+    },
+    rewriteMetadata: parsedId === null || createdAtResolution.usedFallback || updatedAtResolution.usedFallback,
   }
 }
 
-async function writeStoredDocument(fs: FsApi, folder: string, record: StoredDocumentRecord): Promise<void> {
-  const path = documentPath(folder, record.metadata.id)
+async function findStoredMarkdownFileById(
+  fs: FsApi,
+  folder: string,
+  id: string,
+): Promise<StoredMarkdownFile | null> {
+  const normalizedId = normalizeDocumentId(id)
+  if (!normalizedId) {
+    return null
+  }
+
+  const files = await listStoredMarkdownFiles(fs, folder)
+  let fileNameFallbackMatch: StoredMarkdownFile | null = null
+
+  for (const file of files) {
+    let fileContent: string
+    try {
+      fileContent = await fs.readTextFile(file.path)
+    } catch {
+      continue
+    }
+
+    if (typeof fileContent !== 'string') {
+      continue
+    }
+
+    const { metadata } = parseFrontmatter(fileContent)
+    const parsedId = normalizeDocumentId(metadata.id)
+    if (parsedId && parsedId === normalizedId) {
+      return file
+    }
+
+    if (!parsedId && file.titleFromFileName === normalizedId && fileNameFallbackMatch === null) {
+      fileNameFallbackMatch = file
+    }
+  }
+
+  return fileNameFallbackMatch
+}
+
+async function writeStoredDocument(fs: FsApi, path: string, record: StoredDocumentRecord): Promise<void> {
   const markdownContent = buildMarkdownFile({
     ...record,
     title: normalizeTitle(record.title),
@@ -846,17 +1002,6 @@ async function ensureDocumentsFolderExists(fs: FsApi, folder: string): Promise<v
     // If exists check fails, try creating anyway - mkdir with recursive is idempotent
     await fs.mkdir(folder, { recursive: true })
   }
-}
-
-async function listStoredDocumentIds(fs: FsApi, folder: string): Promise<string[]> {
-  const entries = await fs.readDir(folder, { recursive: false })
-
-  return entries
-    .filter((entry) => entry.isDirectory !== true)
-    .map((entry) => entry.name ?? (entry.path ? getFileNameFromPath(entry.path) : ''))
-    .filter((name) => name.toLowerCase().endsWith(MARKDOWN_EXTENSION))
-    .map((name) => name.slice(0, -MARKDOWN_EXTENSION.length))
-    .filter((id) => id.length > 0)
 }
 
 function buildEmbeddingSourceText(title: string, body: string): string {
@@ -1113,14 +1258,41 @@ export async function reindexDocuments(): Promise<DocumentListItem[]> {
   try {
     const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
-    const ids = await listStoredDocumentIds(fs, folder)
+    const files = await listStoredMarkdownFiles(fs, folder)
+    const seenIds = new Set<string>()
+    const documents: Document[] = []
 
-    const documents = await Promise.all(
-      ids.map(async (id) => {
-        const record = await readStoredDocument(fs, folder, id)
-        return mapStoredRecordToDocument(record)
-      }),
-    )
+    for (const file of files) {
+      try {
+        const readResult = await readStoredDocumentFromFile(fs, file)
+        const record: StoredDocumentRecord = {
+          metadata: { ...readResult.record.metadata },
+          title: readResult.record.title,
+          body: readResult.record.body,
+        }
+
+        let shouldRewrite = readResult.rewriteMetadata
+        if (seenIds.has(record.metadata.id)) {
+          let nextId = generateDocumentId()
+          while (seenIds.has(nextId)) {
+            nextId = generateDocumentId()
+          }
+          record.metadata.id = nextId
+          record.metadata.updated_at = nowIsoString()
+          shouldRewrite = true
+        }
+
+        seenIds.add(record.metadata.id)
+
+        if (shouldRewrite) {
+          await writeStoredDocument(fs, file.path, record)
+        }
+
+        documents.push(mapStoredRecordToDocument(record))
+      } catch (error) {
+        console.error(`[reindexDocuments] Failed to index "${file.path}":`, error)
+      }
+    }
 
     const sortedDocuments = documents
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
@@ -1156,6 +1328,8 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
 
     const timestamp = nowIsoString()
     const id = generateDocumentId()
+    const title = await resolveUniqueTitle(fs, folder, payload?.title)
+    const path = joinPath(folder, `${title}${MARKDOWN_EXTENSION}`)
 
     // Create proper empty Tiptap document structure (matches document-editor.tsx line 29)
     const emptyTiptapDoc = {
@@ -1171,11 +1345,11 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
         banner_image_url: null,
         tags: normalizeTags(payload?.tags ?? []),
       },
-      title: normalizeTitle(payload?.title),
+      title,
       body: JSON.stringify(emptyTiptapDoc),
     }
 
-    await writeStoredDocument(fs, folder, record)
+    await writeStoredDocument(fs, path, record)
     const document = mapStoredRecordToDocument(record)
 
     try {
@@ -1200,8 +1374,17 @@ export async function fetchDocument(id: string): Promise<Document> {
   try {
     const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
-    const record = await readStoredDocument(fs, folder, id)
-    return mapStoredRecordToDocument(record)
+    const file = await findStoredMarkdownFileById(fs, folder, id)
+    if (!file) {
+      throw new Error(`Document "${id}" was not found.`)
+    }
+
+    const readResult = await readStoredDocumentFromFile(fs, file, { fallbackId: id })
+    if (readResult.rewriteMetadata) {
+      await writeStoredDocument(fs, file.path, readResult.record)
+    }
+
+    return mapStoredRecordToDocument(readResult.record)
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Failed to fetch document: ${error.message}`)
@@ -1214,7 +1397,17 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
   try {
     const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
-    const existing = await readStoredDocument(fs, folder, id)
+    const file = await findStoredMarkdownFileById(fs, folder, id)
+    if (!file) {
+      throw new Error(`Document "${id}" was not found.`)
+    }
+
+    const readResult = await readStoredDocumentFromFile(fs, file, { fallbackId: id })
+    const existing = readResult.record
+    const nextTitle = payload.title !== undefined
+      ? await resolveUniqueTitle(fs, folder, payload.title, { excludePath: file.path })
+      : existing.title
+    const nextPath = joinPath(folder, `${nextTitle}${MARKDOWN_EXTENSION}`)
 
     const updatedRecord: StoredDocumentRecord = {
       metadata: {
@@ -1230,11 +1423,15 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
           ? payload.tags_locked
           : existing.metadata.tags_locked,
       },
-      title: payload.title !== undefined ? normalizeTitle(payload.title) : existing.title,
+      title: nextTitle,
       body: payload.body !== undefined ? payload.body : existing.body,
     }
 
-    await writeStoredDocument(fs, folder, updatedRecord)
+    if (normalizePathForComparison(nextPath) !== normalizePathForComparison(file.path)) {
+      await fs.rename(file.path, nextPath)
+    }
+
+    await writeStoredDocument(fs, nextPath, updatedRecord)
     const document = mapStoredRecordToDocument(updatedRecord)
 
     try {
@@ -1270,15 +1467,26 @@ export async function deleteDocument(id: string): Promise<void> {
   try {
     const folder = await getConfiguredDocumentsFolder()
     const fs = await getFsApi()
-    const sourcePath = documentPath(folder, id)
+    const file = await findStoredMarkdownFileById(fs, folder, id)
+    if (!file) {
+      throw new Error(`Document "${id}" was not found.`)
+    }
+
+    const sourcePath = file.path
     const trashFolder = joinPath(folder, TRASH_FOLDER_NAME)
-    const baseFileName = `${id}${MARKDOWN_EXTENSION}`
+    const baseFileName = file.name
 
     await fs.mkdir(trashFolder, { recursive: true })
 
     let destinationPath = joinPath(trashFolder, baseFileName)
-    if (await fs.exists(destinationPath)) {
-      destinationPath = joinPath(trashFolder, `${id}-${Date.now()}${MARKDOWN_EXTENSION}`)
+    let collisionIndex = 2
+    while (await fs.exists(destinationPath)) {
+      const title = removeMarkdownExtension(baseFileName)
+      destinationPath = joinPath(
+        trashFolder,
+        `${title}-${Date.now()}-${collisionIndex}${MARKDOWN_EXTENSION}`,
+      )
+      collisionIndex += 1
     }
 
     await fs.rename(sourcePath, destinationPath)
