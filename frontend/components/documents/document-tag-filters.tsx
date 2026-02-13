@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DocumentTagUsage } from '@/types/documents'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface DocumentTagFiltersProps {
   tags: DocumentTagUsage[]
   selectedTags: string[]
   onToggleTag: (tag: string) => void
   onClearTags: () => void
+  onDeleteTag?: (tag: string) => Promise<void>
 }
 
 const RECENT_TAG_LIMIT = 5
@@ -17,11 +19,14 @@ export function DocumentTagFilters({
   selectedTags,
   onToggleTag,
   onClearTags,
+  onDeleteTag,
 }: DocumentTagFiltersProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [isMoreOpen, setIsMoreOpen] = useState(false)
+  const [tagToDelete, setTagToDelete] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags])
   const recentTags = useMemo(() => tags.slice(0, RECENT_TAG_LIMIT), [tags])
@@ -80,6 +85,17 @@ export function DocumentTagFilters({
       if (!next) setQuery('')
       return next
     })
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!tagToDelete || !onDeleteTag) return
+    setIsDeleting(true)
+    try {
+      await onDeleteTag(tagToDelete)
+    } finally {
+      setIsDeleting(false)
+      setTagToDelete(null)
+    }
   }
 
   return (
@@ -158,19 +174,38 @@ export function DocumentTagFilters({
                   const isSelected = selectedTagSet.has(tagUsage.tag)
 
                   return (
-                    <button
+                    <div
                       key={tagUsage.tag}
-                      type="button"
-                      onClick={() => onToggleTag(tagUsage.tag)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${
-                        isSelected
-                          ? 'bg-gray-100 text-gray-900'
-                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      className={`group flex w-full items-center rounded-lg transition-colors ${
+                        isSelected ? 'bg-gray-100' : 'hover:bg-gray-50'
                       }`}
                     >
-                      <span className="truncate">#{tagUsage.tag}</span>
-                      <span className="ml-3 text-[11px] text-gray-400">{tagUsage.usage_count}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => onToggleTag(tagUsage.tag)}
+                        className={`flex flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${
+                          isSelected ? 'text-gray-900' : 'text-gray-600 group-hover:text-gray-900'
+                        }`}
+                      >
+                        <span className="truncate">#{tagUsage.tag}</span>
+                        <span className="text-[11px] text-gray-400">{tagUsage.usage_count}</span>
+                      </button>
+                      {onDeleteTag ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setTagToDelete(tagUsage.tag)
+                          }}
+                          title={`Delete #${tagUsage.tag}`}
+                          className="mr-1 flex-shrink-0 rounded p-1 text-gray-300 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-gray-300"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                            <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      ) : null}
+                    </div>
                   )
                 })
               ) : (
@@ -180,6 +215,15 @@ export function DocumentTagFilters({
           </div>
         ) : null}
       </div>
+      <ConfirmDialog
+        open={tagToDelete !== null}
+        title="Delete tag"
+        description={tagToDelete ? `Delete #${tagToDelete} from all documents? This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setTagToDelete(null)}
+        isLoading={isDeleting}
+      />
     </div>
   )
 }

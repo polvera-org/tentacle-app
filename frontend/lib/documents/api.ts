@@ -1195,6 +1195,17 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
   }
 }
 
+export async function deleteGlobalTag(tag: string): Promise<void> {
+  const documents = await fetchCachedDocuments()
+  const affected = documents.filter((doc) => doc.tags.includes(tag))
+
+  await Promise.all(
+    affected.map((doc) =>
+      updateDocument(doc.id, { tags: doc.tags.filter((t) => t !== tag) })
+    )
+  )
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   try {
     const folder = await getConfiguredDocumentsFolder()

@@ -6,6 +6,7 @@ import {
   fetchCachedDocumentTags,
   reindexDocuments,
   semanticSearchDocuments,
+  deleteGlobalTag,
 } from '@/lib/documents/api'
 import { extractPlainTextFromTiptapBody } from '@/lib/ai/local-embeddings'
 import { DocumentCard } from './document-card'
@@ -146,6 +147,11 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
     }
   }, [applyDocumentTags])
 
+  const handleDeleteTag = useCallback(async (tag: string) => {
+    await deleteGlobalTag(tag)
+    await loadDocuments()
+  }, [loadDocuments])
+
   useEffect(() => {
     loadDocuments()
   }, [loadDocuments])
@@ -225,6 +231,7 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
         selectedTags={selectedTags}
         onToggleTag={handleToggleTag}
         onClearTags={handleClearTags}
+        onDeleteTag={handleDeleteTag}
       />
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         <NewDocumentCard />
