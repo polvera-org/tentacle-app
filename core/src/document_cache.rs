@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Once;
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, Transaction};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -272,44 +272,36 @@ impl DocumentCacheStore {
         validate_embedding_vector(&embedding.vector)?;
 
         let transaction = self.connection.transaction()?;
-        let existing_id: Option<i64> = transaction
-            .query_row(
-                "SELECT id FROM document_embeddings_meta WHERE document_id = ?1",
-                params![&embedding.document_id],
-                |row| row.get(0),
-            )
-            .optional()?;
+        transaction.execute(
+            "INSERT INTO document_embeddings_meta (document_id, model, content_hash, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(document_id) DO UPDATE SET
+               model = excluded.model,
+               content_hash = excluded.content_hash,
+               updated_at = excluded.updated_at",
+            params![
+                &embedding.document_id,
+                &embedding.model,
+                &embedding.content_hash,
+                &embedding.updated_at
+            ],
+        )?;
 
-        let meta_id = if let Some(existing_id) = existing_id {
-            transaction.execute(
-                "UPDATE document_embeddings_meta
-                 SET model = ?1, content_hash = ?2, updated_at = ?3
-                 WHERE id = ?4",
-                params![
-                    &embedding.model,
-                    &embedding.content_hash,
-                    &embedding.updated_at,
-                    existing_id
-                ],
-            )?;
-            existing_id
-        } else {
-            transaction.execute(
-                "INSERT INTO document_embeddings_meta (document_id, model, content_hash, updated_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    &embedding.document_id,
-                    &embedding.model,
-                    &embedding.content_hash,
-                    &embedding.updated_at
-                ],
-            )?;
-            transaction.last_insert_rowid()
-        };
+        let meta_id: i64 = transaction.query_row(
+            "SELECT id FROM document_embeddings_meta WHERE document_id = ?1",
+            params![&embedding.document_id],
+            |row| row.get(0),
+        )?;
 
         let vector_bytes = f32_vector_to_le_bytes(&embedding.vector);
+        // vec0 does not reliably support conflict clauses like INSERT OR REPLACE.
+        // Delete first, then insert deterministically for idempotent upserts.
         transaction.execute(
-            "INSERT OR REPLACE INTO document_embeddings_vec (rowid, embedding)
+            "DELETE FROM document_embeddings_vec WHERE rowid = ?1",
+            params![meta_id],
+        )?;
+        transaction.execute(
+            "INSERT INTO document_embeddings_vec (rowid, embedding)
              VALUES (?1, vec_f32(?2))",
             params![meta_id, vector_bytes],
         )?;
@@ -583,9 +575,27 @@ mod tests {
                 .upsert_document_embedding(&embedding)
                 .expect("embedding upsert should succeed");
 
+            let updated_embedding = CachedDocumentEmbeddingPayload {
+                document_id: document.id.clone(),
+                model: "test-model".to_string(),
+                content_hash: "updated-hash".to_string(),
+                vector: vec![1.0; EMBEDDING_VECTOR_DIMENSIONS],
+                updated_at: "2026-02-13T00:00:01Z".to_string(),
+            };
+            store
+                .upsert_document_embedding(&updated_embedding)
+                .expect("repeated embedding upsert should succeed");
+
+            let metadata = store
+                .list_document_embedding_metadata()
+                .expect("embedding metadata read should succeed");
+            assert_eq!(metadata.len(), 1);
+            assert_eq!(metadata[0].document_id, document.id);
+            assert_eq!(metadata[0].content_hash, "updated-hash");
+
             let hits = store
                 .semantic_search_documents(
-                    vec![0.0; EMBEDDING_VECTOR_DIMENSIONS],
+                    vec![1.0; EMBEDDING_VECTOR_DIMENSIONS],
                     1,
                     0.0,
                     None,
