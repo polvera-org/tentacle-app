@@ -9,6 +9,7 @@ import {
 import {
   deleteCachedDocumentEmbedding,
   readCachedEmbeddingMetadata,
+  semanticSearchCachedDocuments,
   upsertCachedDocumentEmbedding,
 } from '@/lib/documents/embeddings-cache'
 import {
@@ -22,6 +23,7 @@ import type {
   DocumentTagUsage,
   CreateDocumentPayload,
   DocumentEmbeddingMetadata,
+  SemanticSearchHit,
   UpdateDocumentPayload,
 } from '@/types/documents'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
@@ -1007,6 +1009,34 @@ export async function fetchCachedDocumentTags(): Promise<DocumentTagUsage[]> {
     console.error('[fetchCachedDocumentTags] Failed to read cache, returning empty list:', error)
     return []
   }
+}
+
+export async function semanticSearchDocuments(
+  query: string,
+  options?: {
+    limit?: number
+    min_score?: number
+    exclude_document_id?: string
+  },
+): Promise<SemanticSearchHit[]> {
+  const normalizedQuery = query.trim()
+  if (normalizedQuery.length === 0) {
+    return []
+  }
+
+  const queryVector = await embedTextLocally(normalizedQuery)
+  if (queryVector.length === 0) {
+    return []
+  }
+
+  const normalizedOptions = options ?? {}
+  const folder = await getConfiguredDocumentsFolder()
+  return await semanticSearchCachedDocuments(folder, {
+    query_vector: queryVector,
+    limit: normalizedOptions.limit,
+    min_score: normalizedOptions.min_score,
+    exclude_document_id: normalizedOptions.exclude_document_id,
+  })
 }
 
 export async function reindexDocuments(): Promise<DocumentListItem[]> {
