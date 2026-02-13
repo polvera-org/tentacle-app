@@ -1,6 +1,7 @@
 'use client'
 
 import toast from 'react-hot-toast'
+import { createTransformersIndexedDbCache } from '@/lib/ai/transformers-idb-cache'
 
 export const LOCAL_EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2'
 
@@ -154,9 +155,15 @@ async function getFeatureExtractionPipeline(): Promise<FeatureExtractionPipeline
 
   pipelinePromise = (async () => {
     const { pipeline, env } = await import('@xenova/transformers')
+
+    const persistentCache = await createTransformersIndexedDbCache()
     env.allowLocalModels = false
     env.useFS = false
     env.useFSCache = false
+    env.useBrowserCache = false
+    env.useCustomCache = persistentCache !== null
+    env.customCache = persistentCache
+
     const extractor = await pipeline('feature-extraction', LOCAL_EMBEDDING_MODEL_ID, {
       progress_callback: handlePipelineProgress,
     })
