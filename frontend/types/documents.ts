@@ -27,6 +27,12 @@ export interface DocumentListItem {
   updated_at: string
 }
 
+export interface DocumentTagUsage {
+  tag: string
+  last_used_at: string
+  usage_count: number
+}
+
 export interface CreateDocumentPayload {
   title?: string
   tags?: string[]

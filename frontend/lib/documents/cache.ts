@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Document, DocumentListItem } from '@/types/documents'
+import type { Document, DocumentListItem, DocumentTagUsage } from '@/types/documents'
 
 interface CachedDocumentPayload {
   id: string
@@ -13,8 +13,15 @@ interface CachedDocumentPayload {
   tags: string[]
 }
 
+interface CachedDocumentTagUsagePayload {
+  tag: string
+  last_used_at: string
+  usage_count: number
+}
+
 const DEFAULT_TITLE = 'Untitled'
 const LOCAL_USER_ID = 'local'
+const EPOCH_ISO_TIMESTAMP = '1970-01-01T00:00:00.000Z'
 
 function nowIsoString(): string {
   return new Date().toISOString()
@@ -65,6 +72,15 @@ function normalizeTags(value: unknown): string[] {
 
 function normalizeTimestamp(value: unknown, fallback: string): string {
   return normalizeString(value, fallback)
+}
+
+function normalizeNonNegativeNumber(value: unknown): number {
+  const normalized = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    return 0
+  }
+
+  return Math.trunc(normalized)
 }
 
 function normalizeFolder(folder: string): string {
@@ -147,6 +163,24 @@ function toDocumentListItem(payload: unknown): DocumentListItem | null {
   }
 }
 
+function toDocumentTagUsage(payload: unknown): DocumentTagUsage | null {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const cached = payload as Partial<CachedDocumentTagUsagePayload>
+  const tag = normalizeString(cached.tag)
+  if (tag.length === 0) {
+    return null
+  }
+
+  return {
+    tag,
+    last_used_at: normalizeTimestamp(cached.last_used_at, EPOCH_ISO_TIMESTAMP),
+    usage_count: normalizeNonNegativeNumber(cached.usage_count),
+  }
+}
+
 export async function readCachedDocuments(folder: string): Promise<DocumentListItem[]> {
   const normalizedFolder = normalizeFolder(folder)
   const payload = await invoke<unknown>('get_cached_documents', createFolderArgs(normalizedFolder))
@@ -159,6 +193,27 @@ export async function readCachedDocuments(folder: string): Promise<DocumentListI
     .map(toDocumentListItem)
     .filter((document): document is DocumentListItem => document !== null)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+}
+
+export async function readCachedDocumentTags(folder: string): Promise<DocumentTagUsage[]> {
+  const normalizedFolder = normalizeFolder(folder)
+  const payload = await invoke<unknown>('get_cached_document_tags', createFolderArgs(normalizedFolder))
+
+  if (!Array.isArray(payload)) {
+    return []
+  }
+
+  return payload
+    .map(toDocumentTagUsage)
+    .filter((tagUsage): tagUsage is DocumentTagUsage => tagUsage !== null)
+    .sort((a, b) => {
+      const byLastUsedAt = b.last_used_at.localeCompare(a.last_used_at)
+      if (byLastUsedAt !== 0) {
+        return byLastUsedAt
+      }
+
+      return a.tag.localeCompare(b.tag)
+    })
 }
 
 export async function upsertCachedDocument(folder: string, document: Document): Promise<void> {

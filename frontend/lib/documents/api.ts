@@ -1,11 +1,18 @@
 import { getDocumentsFolderAsync } from '@/lib/settings/documents-folder'
 import {
   deleteCachedDocument,
+  readCachedDocumentTags,
   readCachedDocuments,
   replaceCachedDocuments,
   upsertCachedDocument,
 } from '@/lib/documents/cache'
-import type { Document, DocumentListItem, CreateDocumentPayload, UpdateDocumentPayload } from '@/types/documents'
+import type {
+  Document,
+  DocumentListItem,
+  DocumentTagUsage,
+  CreateDocumentPayload,
+  UpdateDocumentPayload,
+} from '@/types/documents'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
 const DEFAULT_TITLE = 'Untitled'
 const TRASH_FOLDER_NAME = '.trash'
@@ -824,6 +831,16 @@ export async function fetchCachedDocuments(): Promise<DocumentListItem[]> {
     return await readCachedDocuments(folder)
   } catch (error) {
     console.error('[fetchCachedDocuments] Failed to read cache, returning empty list:', error)
+    return []
+  }
+}
+
+export async function fetchCachedDocumentTags(): Promise<DocumentTagUsage[]> {
+  try {
+    const folder = await getConfiguredDocumentsFolder()
+    return await readCachedDocumentTags(folder)
+  } catch (error) {
+    console.error('[fetchCachedDocumentTags] Failed to read cache, returning empty list:', error)
     return []
   }
 }
