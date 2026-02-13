@@ -53,6 +53,8 @@ Tentacle captures your thoughts via voice, transcribes them instantly, and autom
 
 - Rich text document editor with Tiptap
 - Local-first document create, read, update, delete operations
+- Local embeddings cache powers semantic search ranking from `<documents_folder>/.document-data.db`
+- Optional BYOK auto-tagging enriches notes on save while preserving manually added tags
 - Markdown files stored directly in a user-selected folder
 - Soft delete behavior (documents move to `.trash/`)
 - Cross-platform desktop application
