@@ -27,14 +27,6 @@ function normalizeTags(tags: string[]): string[] {
   return Array.from(uniqueTags)
 }
 
-function parseTagsInput(input: string): string[] {
-  return normalizeTags(input.split(/\s+/))
-}
-
-function formatTagsInput(tags: string[]): string {
-  return normalizeTags(tags).map((tag) => `#${tag}`).join(' ')
-}
-
 function areTagsEqual(first: string[], second: string[]): boolean {
   if (first.length !== second.length) return false
   return first.every((tag, index) => tag === second[index])
@@ -47,7 +39,8 @@ function DocumentDetailContent() {
 
   const [doc, setDoc] = useState<Document | null>(null)
   const [title, setTitle] = useState('')
-  const [tagsInput, setTagsInput] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+  const [tagInputValue, setTagInputValue] = useState('')
   const [content, setContent] = useState<JSONContent | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -59,6 +52,7 @@ function DocumentDetailContent() {
   const lastSavedBody = useRef('')
   const lastSavedTags = useRef<string[]>([])
   const editorRef = useRef<Editor | null>(null)
+  const tagInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!documentId) {
@@ -76,7 +70,7 @@ function DocumentDetailContent() {
           tags: normalizedTags,
         })
         setTitle(data.title)
-        setTagsInput(formatTagsInput(normalizedTags))
+        setTags(normalizedTags)
         lastSavedTitle.current = data.title
         lastSavedBody.current = data.body
         lastSavedTags.current = normalizedTags
@@ -98,7 +92,6 @@ function DocumentDetailContent() {
   }, [documentId, router])
 
   const debouncedTitle = useDebounce(title, 1000)
-  const debouncedTagsInput = useDebounce(tagsInput, 1000)
   const debouncedContent = useDebounce(content, 1000)
 
   // Auto-save title
@@ -134,24 +127,49 @@ function DocumentDetailContent() {
   // Auto-save tags
   useEffect(() => {
     if (isInitialLoad.current || !doc) return
-
-    const parsedTags = parseTagsInput(debouncedTagsInput)
-    if (areTagsEqual(parsedTags, lastSavedTags.current)) return
+    if (areTagsEqual(tags, lastSavedTags.current)) return
 
     setIsSaving(true)
-    updateDocument(doc.id, { tags: parsedTags })
+    updateDocument(doc.id, { tags })
       .then((updated) => {
-        const normalizedUpdatedTags = normalizeTags(updated.tags ?? parsedTags)
-
-        setDoc({
-          ...updated,
-          tags: normalizedUpdatedTags,
-        })
+        const normalizedUpdatedTags = normalizeTags(updated.tags ?? tags)
+        setDoc({ ...updated, tags: normalizedUpdatedTags })
         lastSavedTags.current = normalizedUpdatedTags
-        setTagsInput(formatTagsInput(normalizedUpdatedTags))
       })
       .finally(() => setIsSaving(false))
-  }, [debouncedTagsInput]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tags]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addTag = useCallback((value: string) => {
+    const normalized = normalizeTags([value])
+    if (normalized.length === 0) return
+    setTags((prev) => {
+      const merged = [...new Set([...prev, ...normalized])]
+      return merged
+    })
+    setTagInputValue('')
+  }, [])
+
+  const removeTag = useCallback((tagToRemove: string) => {
+    setTags((prev) => prev.filter((t) => t !== tagToRemove))
+  }, [])
+
+  const handleTagKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addTag(tagInputValue)
+    } else if (e.key === 'Backspace' && tagInputValue === '' && tags.length > 0) {
+      removeTag(tags[tags.length - 1])
+    }
+  }, [tagInputValue, tags, addTag, removeTag])
+
+  const handleTagInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    if (value.endsWith(',')) {
+      addTag(value.slice(0, -1))
+    } else {
+      setTagInputValue(value)
+    }
+  }, [addTag])
 
   const handleContentChange = useCallback((newContent: JSONContent) => {
     setContent(newContent)
@@ -254,13 +272,42 @@ function DocumentDetailContent() {
             title === 'Untitled' ? 'text-gray-400' : 'text-gray-900'
           }`}
         />
-        <input
-          type="text"
-          value={tagsInput}
-          onChange={(event) => setTagsInput(event.target.value)}
-          placeholder="#tag_one #tag_two"
-          className="w-full h-9 px-3 text-xs text-gray-700 placeholder-gray-400 border border-gray-200 rounded-lg bg-gray-50/60 focus:bg-white focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-violet-500/40 mb-4"
-        />
+        <div className="mb-4">
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div
+            className="w-full min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-500/20 cursor-text transition-all"
+            onClick={() => tagInputRef.current?.focus()}
+          >
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 text-xs font-medium font-mono bg-violet-100 text-violet-800 rounded-md"
+              >
+                #{tag}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
+                  className="flex items-center justify-center w-3.5 h-3.5 rounded-sm text-violet-500 hover:text-violet-900 hover:bg-violet-200 transition-colors focus:outline-none"
+                  aria-label={`Remove tag ${tag}`}
+                >
+                  <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                    <path d="M2 2l6 6M8 2l-6 6" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+            <input
+              ref={tagInputRef}
+              type="text"
+              value={tagInputValue}
+              onChange={handleTagInputChange}
+              onKeyDown={handleTagKeyDown}
+              placeholder={tags.length === 0 ? 'Add tag...' : ''}
+              className="flex-1 min-w-[80px] text-xs text-gray-700 placeholder-gray-400 bg-transparent outline-none py-0.5"
+            />
+          </div>
+          <p className="text-xs text-gray-400 text-right mt-1">Press Enter or comma to add tag</p>
+        </div>
 
         <DocumentEditor
           initialContent={content}
