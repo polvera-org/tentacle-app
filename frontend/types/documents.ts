@@ -55,6 +55,21 @@ export interface SemanticSearchHit {
   score: number
 }
 
+export interface HybridSearchHit {
+  document_id: string
+  score: number
+}
+
+export interface CachedDocumentChunkEmbeddingPayload {
+  document_id: string
+  chunk_index: number
+  chunk_text: string
+  content_hash: string
+  model: string
+  vector: number[]
+  updated_at: string
+}
+
 export interface CreateDocumentPayload {
   title?: string
   tags?: string[]

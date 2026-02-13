@@ -3,8 +3,9 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tentacle_core::config::ConfigStore;
 use tentacle_core::document_cache::{
-    CachedDocumentEmbeddingMetadataPayload, CachedDocumentEmbeddingPayload, CachedDocumentPayload,
-    CachedDocumentTagPayload, DocumentCacheStore, SemanticSearchHitPayload,
+    CachedDocumentChunkEmbeddingPayload, CachedDocumentEmbeddingMetadataPayload,
+    CachedDocumentEmbeddingPayload, CachedDocumentPayload, CachedDocumentTagPayload,
+    DocumentCacheStore, HybridSearchHitPayload, SemanticSearchHitPayload,
 };
 
 #[tauri::command]
@@ -145,6 +146,45 @@ fn semantic_search_cached_documents(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn hybrid_search_cached_documents(
+    documents_folder: String,
+    query_vector: Vec<f32>,
+    query_text: String,
+    semantic_weight: f32,
+    bm25_weight: f32,
+    limit: usize,
+    min_score: f32,
+    exclude_document_id: Option<String>,
+) -> Result<Vec<HybridSearchHitPayload>, String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .hybrid_search_documents(
+            query_vector,
+            &query_text,
+            limit,
+            min_score,
+            exclude_document_id,
+            semantic_weight,
+            bm25_weight,
+        )
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn replace_cached_document_chunk_embeddings(
+    documents_folder: String,
+    document_id: String,
+    chunks: Vec<CachedDocumentChunkEmbeddingPayload>,
+) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    store
+        .replace_document_chunk_embeddings(&document_id, &chunks)
+        .map_err(|err| err.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -161,7 +201,9 @@ pub fn run() {
             upsert_cached_document_embedding,
             delete_cached_document_embedding,
             replace_cached_document_embeddings,
-            semantic_search_cached_documents
+            semantic_search_cached_documents,
+            hybrid_search_cached_documents,
+            replace_cached_document_chunk_embeddings
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

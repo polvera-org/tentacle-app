@@ -1,7 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  CachedDocumentChunkEmbeddingPayload,
   CachedDocumentEmbeddingPayload,
   DocumentEmbeddingMetadata,
+  HybridSearchHit,
   SemanticSearchHit,
 } from '@/types/documents'
 
@@ -12,6 +14,22 @@ const EPOCH_ISO_TIMESTAMP = '1970-01-01T00:00:00.000Z'
 export interface SemanticSearchCachedDocumentsArgs {
   query_vector?: number[]
   queryVector?: number[]
+  limit?: number
+  min_score?: number
+  minScore?: number
+  exclude_document_id?: string | null
+  excludeDocumentId?: string | null
+}
+
+export interface HybridSearchCachedDocumentsArgs {
+  query_vector?: number[]
+  queryVector?: number[]
+  query_text?: string
+  queryText?: string
+  semantic_weight?: number
+  semanticWeight?: number
+  bm25_weight?: number
+  bm25Weight?: number
   limit?: number
   min_score?: number
   minScore?: number
@@ -310,6 +328,21 @@ export async function replaceCachedDocumentEmbeddings(
   })
 }
 
+function toHybridSearchHit(payload: unknown): HybridSearchHit | null {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const cached = payload as RecordLike
+  const documentId = readStringEntry(cached, 'document_id', 'documentId')
+  if (documentId.length === 0) {
+    return null
+  }
+
+  const score = normalizeFiniteNumber(cached.score, 0)
+  return { document_id: documentId, score }
+}
+
 export async function semanticSearchCachedDocuments(
   folder: string,
   args: SemanticSearchCachedDocumentsArgs,
@@ -347,4 +380,89 @@ export async function semanticSearchCachedDocuments(
 
       return a.document_id.localeCompare(b.document_id)
     })
+}
+
+export async function hybridSearchCachedDocuments(
+  folder: string,
+  args: HybridSearchCachedDocumentsArgs,
+): Promise<HybridSearchHit[]> {
+  const normalizedFolder = normalizeFolder(folder)
+  const queryVector = normalizeVector(args.query_vector ?? args.queryVector)
+
+  if (queryVector.length === 0) {
+    return []
+  }
+
+  const queryText = normalizeString(args.query_text ?? args.queryText)
+  const semanticWeight = normalizeFiniteNumber(args.semantic_weight ?? args.semanticWeight, 0.5)
+  const bm25Weight = normalizeFiniteNumber(args.bm25_weight ?? args.bm25Weight, 0.5)
+  const limit = normalizeLimit(args.limit)
+  const minScore = normalizeMinScore(args.min_score ?? args.minScore)
+  const excludeDocumentId = normalizeNullableString(args.exclude_document_id ?? args.excludeDocumentId)
+
+  const payload = await invoke<unknown>('hybrid_search_cached_documents', {
+    ...createFolderArgs(normalizedFolder),
+    queryVector,
+    query_vector: queryVector,
+    queryText,
+    query_text: queryText,
+    semanticWeight,
+    semantic_weight: semanticWeight,
+    bm25Weight,
+    bm25_weight: bm25Weight,
+    limit,
+    minScore,
+    min_score: minScore,
+    excludeDocumentId: excludeDocumentId,
+    exclude_document_id: excludeDocumentId,
+  })
+
+  if (!Array.isArray(payload)) {
+    return []
+  }
+
+  return payload
+    .map(toHybridSearchHit)
+    .filter((hit): hit is HybridSearchHit => hit !== null)
+    .sort((a, b) => {
+      const byScore = b.score - a.score
+      if (byScore !== 0) {
+        return byScore
+      }
+
+      return a.document_id.localeCompare(b.document_id)
+    })
+}
+
+export async function replaceCachedDocumentChunkEmbeddings(
+  folder: string,
+  documentId: string,
+  chunks: CachedDocumentChunkEmbeddingPayload[],
+): Promise<void> {
+  const normalizedFolder = normalizeFolder(folder)
+  const normalizedDocumentId = normalizeString(documentId)
+
+  if (normalizedDocumentId.length === 0 || chunks.length === 0) {
+    return
+  }
+
+  await invoke('replace_cached_document_chunk_embeddings', {
+    ...createFolderArgs(normalizedFolder),
+    documentId: normalizedDocumentId,
+    document_id: normalizedDocumentId,
+    chunks: chunks.map((chunk) => ({
+      document_id: chunk.document_id,
+      documentId: chunk.document_id,
+      chunk_index: chunk.chunk_index,
+      chunkIndex: chunk.chunk_index,
+      chunk_text: chunk.chunk_text,
+      chunkText: chunk.chunk_text,
+      content_hash: chunk.content_hash,
+      contentHash: chunk.content_hash,
+      model: chunk.model,
+      vector: chunk.vector,
+      updated_at: chunk.updated_at,
+      updatedAt: chunk.updated_at,
+    })),
+  })
 }

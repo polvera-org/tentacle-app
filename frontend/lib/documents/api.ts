@@ -8,8 +8,9 @@ import {
 } from '@/lib/documents/cache'
 import {
   deleteCachedDocumentEmbedding,
+  hybridSearchCachedDocuments,
   readCachedEmbeddingMetadata,
-  semanticSearchCachedDocuments,
+  replaceCachedDocumentChunkEmbeddings,
   upsertCachedDocumentEmbedding,
 } from '@/lib/documents/embeddings-cache'
 import {
@@ -23,9 +24,12 @@ import type {
   DocumentTagUsage,
   CreateDocumentPayload,
   DocumentEmbeddingMetadata,
+  HybridSearchHit,
   SemanticSearchHit,
   UpdateDocumentPayload,
 } from '@/types/documents'
+import { preprocessQuery } from '@/lib/ai/query-preprocessor'
+import { chunkDocumentText } from '@/lib/ai/document-chunker'
 const STORAGE_UNAVAILABLE_ERROR_MESSAGE = 'Local documents storage is unavailable. Open Tentacle in the desktop app to access your files.'
 const DEFAULT_TITLE = 'Untitled'
 const TRASH_FOLDER_NAME = '.trash'
@@ -948,9 +952,55 @@ async function upsertLocalDocumentEmbedding(
   })
 }
 
+async function upsertLocalDocumentChunkEmbeddings(
+  folder: string,
+  document: EmbeddingSyncDocument,
+): Promise<void> {
+  const plainBody = extractPlainTextFromTiptapBody(document.body)
+  const chunks = chunkDocumentText(document.title, plainBody)
+
+  // Compute a combined hash of all chunk texts to detect document-level changes.
+  const combinedText = chunks.map((c) => c.text).join('\u0000')
+  const combinedHash = await computeSha256Hex(`chunks\u0000${combinedText}\u0000${LOCAL_EMBEDDING_MODEL_ID}`)
+
+  // Check existing chunk meta to skip unchanged documents.
+  // We store the combined hash as the content_hash of chunk index 0 if it exists.
+  // Simple heuristic: if first chunk's content_hash matches, assume all chunks are up-to-date.
+  // (A full check would require reading all chunk hashes, which is more expensive.)
+  // We skip this optimization here and always re-embed if needed — the hash comparison
+  // happens implicitly via the combined hash stored per-chunk.
+
+  const chunkPayloads = []
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]
+    const vector = await embedTextLocally(chunk.text)
+    if (vector.length === 0) {
+      continue
+    }
+    chunkPayloads.push({
+      document_id: document.id,
+      chunk_index: i,
+      chunk_text: chunk.text,
+      content_hash: combinedHash,
+      model: LOCAL_EMBEDDING_MODEL_ID,
+      vector,
+      updated_at: document.updated_at,
+    })
+  }
+
+  if (chunkPayloads.length === 0) {
+    return
+  }
+
+  await replaceCachedDocumentChunkEmbeddings(folder, document.id, chunkPayloads)
+}
+
 function scheduleDocumentEmbeddingSync(folder: string, document: EmbeddingSyncDocument): void {
   void upsertLocalDocumentEmbedding(folder, document).catch((error) => {
     console.error(`[embedding-sync] Failed to sync embedding for "${document.id}":`, error)
+  })
+  void upsertLocalDocumentChunkEmbeddings(folder, document).catch((error) => {
+    console.error(`[embedding-sync] Failed to sync chunk embeddings for "${document.id}":`, error)
   })
 }
 
@@ -988,6 +1038,11 @@ function scheduleBatchDocumentEmbeddingSync(
         await upsertLocalDocumentEmbedding(folder, document, metadataLookup)
       } catch (error) {
         console.error(`[embedding-sync] Failed to sync embedding for "${document.id}":`, error)
+      }
+      try {
+        await upsertLocalDocumentChunkEmbeddings(folder, document)
+      } catch (error) {
+        console.error(`[embedding-sync] Failed to sync chunk embeddings for "${document.id}":`, error)
       }
     })
   })().catch((error) => {
@@ -1028,21 +1083,26 @@ export async function semanticSearchDocuments(
     min_score?: number
     exclude_document_id?: string
   },
-): Promise<SemanticSearchHit[]> {
+): Promise<HybridSearchHit[]> {
   const normalizedQuery = query.trim()
   if (normalizedQuery.length === 0) {
     return []
   }
 
-  const queryVector = await embedTextLocally(normalizedQuery)
+  const { normalized, ftsQuery, semanticWeight, bm25Weight } = preprocessQuery(normalizedQuery)
+
+  const queryVector = await embedTextLocally(normalized)
   if (queryVector.length === 0) {
     return []
   }
 
   const normalizedOptions = options ?? {}
   const folder = await getConfiguredDocumentsFolder()
-  return await semanticSearchCachedDocuments(folder, {
+  return await hybridSearchCachedDocuments(folder, {
     query_vector: queryVector,
+    query_text: ftsQuery,
+    semantic_weight: semanticWeight,
+    bm25_weight: bm25Weight,
     limit: normalizedOptions.limit,
     min_score: normalizedOptions.min_score,
     exclude_document_id: normalizedOptions.exclude_document_id,

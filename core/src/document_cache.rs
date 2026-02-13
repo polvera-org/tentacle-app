@@ -61,6 +61,49 @@ AFTER DELETE ON document_embeddings_meta
 BEGIN
   DELETE FROM document_embeddings_vec WHERE rowid = OLD.id;
 END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+  title, body,
+  content='documents', content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_documents_fts_insert
+AFTER INSERT ON documents BEGIN
+  INSERT INTO documents_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_documents_fts_update
+AFTER UPDATE ON documents BEGIN
+  INSERT INTO documents_fts(documents_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body);
+  INSERT INTO documents_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_documents_fts_delete
+AFTER DELETE ON documents BEGIN
+  INSERT INTO documents_fts(documents_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body);
+END;
+
+CREATE TABLE IF NOT EXISTS document_chunk_embeddings_meta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_id TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  chunk_text TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  model TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+  UNIQUE (document_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunk_meta_doc_id ON document_chunk_embeddings_meta(document_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunk_embeddings_vec USING vec0(embedding float[384]);
+
+CREATE TRIGGER IF NOT EXISTS trg_chunk_meta_delete_vec
+AFTER DELETE ON document_chunk_embeddings_meta
+BEGIN
+  DELETE FROM document_chunk_embeddings_vec WHERE rowid = OLD.id;
+END;
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +149,23 @@ pub struct SemanticSearchHitPayload {
     pub score: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HybridSearchHitPayload {
+    pub document_id: String,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedDocumentChunkEmbeddingPayload {
+    pub document_id: String,
+    pub chunk_index: usize,
+    pub chunk_text: String,
+    pub content_hash: String,
+    pub model: String,
+    pub vector: Vec<f32>,
+    pub updated_at: String,
+}
+
 pub struct DocumentCacheStore {
     connection: Connection,
 }
@@ -119,6 +179,27 @@ fn initialize_sqlite_vec_extension() {
     });
 }
 
+/// Sanitize a raw user query for use in FTS5 MATCH.
+/// Splits on non-alphanumeric chars (except hyphen), wraps tokens ≥2 chars in double quotes,
+/// joins with OR. Returns None if no valid tokens (fall back to pure semantic).
+fn sanitize_fts5_query(raw: &str) -> Option<String> {
+    let tokens: Vec<String> = raw
+        .split(|c: char| !c.is_alphanumeric() && c != '-')
+        .filter(|t| t.len() >= 2)
+        .map(|t| format!("\"{}\"", t.replace('"', "")))
+        .collect();
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" OR "))
+    }
+}
+
+struct Bm25Hit {
+    document_id: String,
+}
+
 impl DocumentCacheStore {
     pub fn new(documents_folder: &Path) -> Result<Self, DocumentCacheError> {
         initialize_sqlite_vec_extension();
@@ -128,7 +209,39 @@ impl DocumentCacheStore {
         let connection = Connection::open(database_path)?;
         connection.execute_batch(CREATE_SCHEMA_SQL)?;
 
-        Ok(Self { connection })
+        let store = Self { connection };
+        store.rebuild_fts_index_if_empty()?;
+        Ok(store)
+    }
+
+    /// If documents_fts is empty but documents has rows, bulk-populate the FTS index.
+    fn rebuild_fts_index_if_empty(&self) -> Result<(), DocumentCacheError> {
+        let fts_count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM documents_fts",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if fts_count > 0 {
+            return Ok(());
+        }
+
+        let doc_count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM documents",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if doc_count == 0 {
+            return Ok(());
+        }
+
+        self.connection.execute_batch(
+            "INSERT INTO documents_fts(rowid, title, body)
+             SELECT rowid, title, body FROM documents",
+        )?;
+
+        Ok(())
     }
 
     pub fn list_documents(&self) -> Result<Vec<CachedDocumentPayload>, DocumentCacheError> {
@@ -232,6 +345,8 @@ impl DocumentCacheStore {
         documents: &[CachedDocumentPayload],
     ) -> Result<(), DocumentCacheError> {
         let transaction = self.connection.transaction()?;
+        // Delete FTS index first to avoid per-row trigger overhead on DELETE FROM documents.
+        transaction.execute("DELETE FROM documents_fts", [])?;
         transaction.execute("DELETE FROM documents", [])?;
 
         for document in documents {
@@ -337,6 +452,53 @@ impl DocumentCacheStore {
         Ok(())
     }
 
+    pub fn replace_document_chunk_embeddings(
+        &mut self,
+        document_id: &str,
+        chunks: &[CachedDocumentChunkEmbeddingPayload],
+    ) -> Result<(), DocumentCacheError> {
+        for chunk in chunks {
+            validate_embedding_vector(&chunk.vector)?;
+        }
+
+        let transaction = self.connection.transaction()?;
+        // Delete old chunks — the trigger will cascade to the vec table.
+        transaction.execute(
+            "DELETE FROM document_chunk_embeddings_meta WHERE document_id = ?1",
+            params![document_id],
+        )?;
+
+        for chunk in chunks {
+            let chunk_index = i64::try_from(chunk.chunk_index).map_err(|_| {
+                DocumentCacheError::Validation("chunk_index is too large".into())
+            })?;
+            transaction.execute(
+                "INSERT INTO document_chunk_embeddings_meta
+                   (document_id, chunk_index, chunk_text, content_hash, model, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    &chunk.document_id,
+                    chunk_index,
+                    &chunk.chunk_text,
+                    &chunk.content_hash,
+                    &chunk.model,
+                    &chunk.updated_at,
+                ],
+            )?;
+
+            let meta_id = transaction.last_insert_rowid();
+            let vector_bytes = f32_vector_to_le_bytes(&chunk.vector);
+            transaction.execute(
+                "INSERT INTO document_chunk_embeddings_vec (rowid, embedding)
+                 VALUES (?1, vec_f32(?2))",
+                params![meta_id, vector_bytes],
+            )?;
+        }
+
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn semantic_search_documents(
         &self,
         query_vector: Vec<f32>,
@@ -394,6 +556,262 @@ impl DocumentCacheStore {
         hits.truncate(limit);
 
         Ok(hits)
+    }
+
+    /// BM25 search via FTS5. Returns up to `limit` hits ordered by FTS5 rank (best first).
+    fn bm25_search_documents(
+        &self,
+        query_text: &str,
+        limit: usize,
+        exclude_document_id: Option<&str>,
+    ) -> Result<Vec<Bm25Hit>, DocumentCacheError> {
+        let fts_query = match sanitize_fts5_query(query_text) {
+            Some(q) => q,
+            None => return Ok(Vec::new()),
+        };
+
+        let k = i64::try_from(limit).unwrap_or(i64::MAX);
+
+        let mut statement = self.connection.prepare(
+            "SELECT d.id
+             FROM documents_fts
+             JOIN documents d ON d.rowid = documents_fts.rowid
+             WHERE documents_fts MATCH ?1
+               AND (?2 IS NULL OR d.id != ?2)
+             ORDER BY rank
+             LIMIT ?3",
+        )?;
+
+        let rows = statement.query_map(
+            params![fts_query, exclude_document_id, k],
+            |row| row.get::<_, String>(0),
+        )?;
+
+        let mut hits = Vec::new();
+        for row in rows {
+            let document_id = row?;
+            hits.push(Bm25Hit { document_id });
+        }
+
+        Ok(hits)
+    }
+
+    /// KNN search over document chunk embeddings, max-pooled to document level.
+    /// Falls back to whole-document KNN if the chunk table is empty.
+    fn chunk_knn_search(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+        min_score: f32,
+        exclude_document_id: Option<&str>,
+    ) -> Result<Vec<SemanticSearchHitPayload>, DocumentCacheError> {
+        // Check if chunk table has any rows.
+        let chunk_count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM document_chunk_embeddings_meta LIMIT 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if chunk_count == 0 {
+            // Fall back to whole-doc KNN.
+            return self.semantic_search_documents(
+                query_vector.to_vec(),
+                limit,
+                min_score,
+                exclude_document_id.map(str::to_owned),
+            );
+        }
+
+        let k = (limit * 8).max(1);
+        let k = i64::try_from(k).unwrap_or(i64::MAX);
+        let query_vector_bytes = f32_vector_to_le_bytes(query_vector);
+        let bounded_min_score = min_score.clamp(-1.0, 1.0);
+
+        let mut statement = self.connection.prepare(
+            "SELECT m.document_id, MAX(1.0 - (v.distance * v.distance / 2.0)) as score
+             FROM document_chunk_embeddings_vec v
+             JOIN document_chunk_embeddings_meta m ON m.id = v.rowid
+             WHERE v.embedding MATCH vec_f32(?1) AND k = ?2
+               AND (?3 IS NULL OR m.document_id != ?3)
+             GROUP BY m.document_id
+             ORDER BY score DESC
+             LIMIT ?4",
+        )?;
+
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = statement.query_map(
+            params![query_vector_bytes, k, exclude_document_id, limit_i64],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?)),
+        )?;
+
+        let mut hits = Vec::new();
+        for row in rows {
+            let (document_id, score) = row?;
+            if score >= bounded_min_score {
+                hits.push(SemanticSearchHitPayload { document_id, score });
+            }
+        }
+
+        Ok(hits)
+    }
+
+    /// Hybrid search: BM25 + chunk KNN, combined with Reciprocal Rank Fusion.
+    pub fn hybrid_search_documents(
+        &self,
+        query_vector: Vec<f32>,
+        query_text: &str,
+        limit: usize,
+        min_score: f32,
+        exclude_document_id: Option<String>,
+        semantic_weight: f32,
+        bm25_weight: f32,
+    ) -> Result<Vec<HybridSearchHitPayload>, DocumentCacheError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        validate_embedding_vector(&query_vector)?;
+
+        let candidate_k = limit.saturating_mul(4).max(1);
+
+        // BM25 leg
+        let bm25_hits = self.bm25_search_documents(
+            query_text,
+            candidate_k,
+            exclude_document_id.as_deref(),
+        )?;
+
+        // Semantic/chunk KNN leg
+        let semantic_hits = self.chunk_knn_search(
+            &query_vector,
+            candidate_k,
+            min_score,
+            exclude_document_id.as_deref(),
+        )?;
+
+        // Collect all candidate document IDs
+        let mut all_doc_ids: Vec<String> = Vec::new();
+        let mut seen_ids: HashSet<String> = HashSet::new();
+
+        for hit in &semantic_hits {
+            if seen_ids.insert(hit.document_id.clone()) {
+                all_doc_ids.push(hit.document_id.clone());
+            }
+        }
+        for hit in &bm25_hits {
+            if seen_ids.insert(hit.document_id.clone()) {
+                all_doc_ids.push(hit.document_id.clone());
+            }
+        }
+
+        if all_doc_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Fetch titles for all candidate docs in one query (for title boosting)
+        let title_map = self.fetch_titles_for_ids(&all_doc_ids)?;
+
+        // Build rank maps
+        let semantic_rank: HashMap<&str, usize> = semantic_hits
+            .iter()
+            .enumerate()
+            .map(|(i, h)| (h.document_id.as_str(), i))
+            .collect();
+        let bm25_rank: HashMap<&str, usize> = bm25_hits
+            .iter()
+            .enumerate()
+            .map(|(i, h)| (h.document_id.as_str(), i))
+            .collect();
+
+        // Query tokens for title boost (lowercased)
+        let query_tokens: Vec<String> = query_text
+            .split_whitespace()
+            .map(|t| t.to_lowercase())
+            .collect();
+
+        // RRF scoring
+        const RRF_K: f32 = 60.0;
+        let mut results: Vec<HybridSearchHitPayload> = all_doc_ids
+            .iter()
+            .map(|doc_id| {
+                let sem_score = semantic_rank
+                    .get(doc_id.as_str())
+                    .map(|&rank| semantic_weight / (RRF_K + rank as f32))
+                    .unwrap_or(0.0);
+
+                let bm25_score = bm25_rank
+                    .get(doc_id.as_str())
+                    .map(|&rank| bm25_weight / (RRF_K + rank as f32))
+                    .unwrap_or(0.0);
+
+                let mut score = sem_score + bm25_score;
+
+                // Title boost: +0.1 if any query token appears in the title
+                let title_lower = title_map
+                    .get(doc_id.as_str())
+                    .map(|t| t.to_lowercase())
+                    .unwrap_or_default();
+                if !title_lower.is_empty()
+                    && query_tokens
+                        .iter()
+                        .any(|token| title_lower.contains(token.as_str()))
+                {
+                    score += 0.1;
+                }
+
+                HybridSearchHitPayload {
+                    document_id: doc_id.clone(),
+                    score,
+                }
+            })
+            .collect();
+
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.document_id.cmp(&b.document_id))
+        });
+        results.truncate(limit);
+
+        Ok(results)
+    }
+
+    /// Fetch title strings for a list of document IDs in one query.
+    fn fetch_titles_for_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<HashMap<String, String>, DocumentCacheError> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build a parameterized IN clause.
+        let placeholders: String = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT id, title FROM documents WHERE id IN ({})",
+            placeholders
+        );
+
+        let mut statement = self.connection.prepare(&sql)?;
+        let params_vec: Vec<&dyn rusqlite::ToSql> =
+            ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        let rows = statement.query_map(params_vec.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut map = HashMap::new();
+        for row in rows {
+            let (id, title) = row?;
+            map.insert(id, title);
+        }
+
+        Ok(map)
     }
 
     fn upsert_document_record(
@@ -539,7 +957,11 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock must be after unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("tentacle-cache-test-{timestamp}"))
+        let thread_id = format!("{:?}", std::thread::current().id())
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+        std::env::temp_dir().join(format!("tentacle-cache-test-{timestamp}-{thread_id}"))
     }
 
     #[test]
@@ -607,5 +1029,66 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn hybrid_search_returns_results() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store = DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+
+            let document = CachedDocumentPayload {
+                id: "doc-hybrid-1".to_string(),
+                user_id: "user-1".to_string(),
+                title: "OAuth Authentication Guide".to_string(),
+                body: "This document explains OAuth 2.0 authentication flows.".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:00Z".to_string(),
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+                tags: vec![],
+            };
+            store.upsert_document(&document).expect("upsert should succeed");
+
+            let embedding = CachedDocumentEmbeddingPayload {
+                document_id: document.id.clone(),
+                model: "test-model".to_string(),
+                content_hash: "hash1".to_string(),
+                vector: vec![0.5; EMBEDDING_VECTOR_DIMENSIONS],
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+            };
+            store.upsert_document_embedding(&embedding).expect("embedding upsert should succeed");
+
+            let hits = store
+                .hybrid_search_documents(
+                    vec![0.5; EMBEDDING_VECTOR_DIMENSIONS],
+                    "OAuth",
+                    5,
+                    0.0,
+                    None,
+                    0.5,
+                    0.5,
+                )
+                .expect("hybrid search should succeed");
+
+            assert!(!hits.is_empty(), "expected at least one hybrid search hit");
+            assert_eq!(hits[0].document_id, document.id);
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn sanitize_fts5_query_basic() {
+        assert_eq!(
+            sanitize_fts5_query("OAuth API"),
+            Some("\"OAuth\" OR \"API\"".to_string())
+        );
+        assert_eq!(sanitize_fts5_query("a"), None); // single char token filtered
+        assert_eq!(
+            sanitize_fts5_query("machine learning"),
+            Some("\"machine\" OR \"learning\"".to_string())
+        );
     }
 }
