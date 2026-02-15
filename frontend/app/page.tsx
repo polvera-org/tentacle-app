@@ -251,23 +251,23 @@ export default function LandingPage() {
             </motion.p>
           </div>
 
-          <div className="mt-20 mx-auto max-w-4xl grid gap-6 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+          <div className="mt-20 mx-auto max-w-5xl grid gap-6 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
             {/* Step 1 */}
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
-              className="group rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm"
+              className="group rounded-2xl border border-zinc-200 bg-white p-10 text-center shadow-sm"
             >
-              <div className="flex items-start justify-between mb-6">
-                <span className="text-[5rem] leading-none font-black text-zinc-100 select-none -mt-2 -ml-1">1</span>
-                <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
-                  <Mic className="w-7 h-7 text-indigo-600" strokeWidth={1.5} />
+              <div className="flex items-start justify-between mb-8">
+                <span className="text-[6rem] leading-none font-black text-zinc-100 select-none -mt-2 -ml-1">1</span>
+                <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Mic className="w-8 h-8 text-indigo-600" strokeWidth={1.5} />
                 </div>
               </div>
-              <h3 className="text-base font-semibold text-zinc-900 text-left">Record your voice</h3>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-500 text-left">
+              <h3 className="text-lg font-semibold text-zinc-900 text-left">Record your voice</h3>
+              <p className="mt-2.5 text-sm leading-relaxed text-zinc-500 text-left">
                 Speak your thoughts. No typing needed — Tentacle captures audio directly on your device.
               </p>
             </motion.div>
@@ -283,16 +283,16 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.15 }}
-              className="group rounded-2xl border border-violet-200 bg-white p-8 text-center shadow-sm"
+              className="group rounded-2xl border border-violet-200 bg-white p-10 text-center shadow-sm"
             >
-              <div className="flex items-start justify-between mb-6">
-                <span className="text-[5rem] leading-none font-black text-violet-50 select-none -mt-2 -ml-1">2</span>
-                <div className="w-14 h-14 rounded-2xl bg-violet-50 border border-violet-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
-                  <Sparkles className="w-7 h-7 text-violet-600" strokeWidth={1.5} />
+              <div className="flex items-start justify-between mb-8">
+                <span className="text-[6rem] leading-none font-black text-violet-50 select-none -mt-2 -ml-1">2</span>
+                <div className="w-16 h-16 rounded-2xl bg-violet-50 border border-violet-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Sparkles className="w-8 h-8 text-violet-600" strokeWidth={1.5} />
                 </div>
               </div>
-              <h3 className="text-base font-semibold text-zinc-900 text-left">AI organizes everything</h3>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-500 text-left">
+              <h3 className="text-lg font-semibold text-zinc-900 text-left">AI organizes everything</h3>
+              <p className="mt-2.5 text-sm leading-relaxed text-zinc-500 text-left">
                 Transcribed, tagged, and indexed automatically. Your note is searchable before you blink.
               </p>
             </motion.div>
@@ -308,16 +308,16 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.3 }}
-              className="group rounded-2xl border border-dashed border-sky-200 bg-white/60 p-8 text-center shadow-sm"
+              className="group rounded-2xl border border-dashed border-sky-200 bg-white/60 p-10 text-center shadow-sm"
             >
-              <div className="flex items-start justify-between mb-6">
-                <span className="text-[5rem] leading-none font-black text-sky-50 select-none -mt-2 -ml-1">3</span>
-                <div className="relative w-14 h-14 rounded-2xl bg-sky-50 border border-sky-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
-                  <Cloud className="w-7 h-7 text-sky-500" strokeWidth={1.5} />
+              <div className="flex items-start justify-between mb-8">
+                <span className="text-[6rem] leading-none font-black text-sky-50 select-none -mt-2 -ml-1">3</span>
+                <div className="relative w-16 h-16 rounded-2xl bg-sky-50 border border-sky-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Cloud className="w-8 h-8 text-sky-500" strokeWidth={1.5} />
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-left mb-2">
-                <h3 className="text-base font-semibold text-zinc-900">Sync everywhere</h3>
+              <div className="flex items-center gap-2 text-left mb-2.5">
+                <h3 className="text-lg font-semibold text-zinc-900">Sync everywhere</h3>
                 <span className="text-[11px] font-medium bg-zinc-100 text-zinc-400 px-2 py-0.5 rounded-full leading-none shrink-0">optional</span>
               </div>
               <p className="text-sm leading-relaxed text-zinc-500 text-left">
@@ -328,61 +328,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Features Section */}
-      <section id="features" className="py-24 bg-white">
-        <div className="container mx-auto px-6">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold text-zinc-900 sm:text-4xl">
-              Everything you need to capture and organize ideas
-            </h2>
-            <p className="mt-4 text-lg text-zinc-500">
-              Powerful features that work locally on your device, with optional cloud AI when you need it.
-            </p>
-          </div>
-
-          <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard
-              illustration={<SearchIllustration />}
-              title="Semantic Search"
-              description="Find notes by meaning, not just keywords. Local embeddings understand what you're looking for — no cloud required."
-              delay={0}
-            />
-            <FeatureCard
-              illustration={<VoiceIllustration />}
-              title="Voice Capture"
-              description="Capture ideas instantly with voice recording. Transcribed locally using Whisper or with your own OpenAI key."
-              delay={0.08}
-            />
-            <FeatureCard
-              illustration={<TagsIllustration />}
-              title="Auto-Tagging"
-              description="Let AI automatically organize your notes with relevant tags. Free users can BYOK, Pro users get it included."
-              delay={0.16}
-            />
-            <FeatureCard
-              illustration={<MarkdownIllustration />}
-              title="Markdown Support"
-              description="Write in Markdown with a beautiful editor. Export to Obsidian or any other Markdown-compatible tool."
-              delay={0.24}
-            />
-            <FeatureCard
-              illustration={<AIIllustration />}
-              title="AI-Powered RAG"
-              description="Chat with your knowledge base. Ask questions and get answers sourced directly from your own notes."
-              delay={0.32}
-            />
-            <FeatureCard
-              illustration={<SyncIllustration />}
-              title="Cloud Sync"
-              description="Optional cloud sync keeps your notes available across all your devices. Encrypted and secure."
-              delay={0.4}
-            />
-          </div>
-        </div>
-      </section>
-
       {/* Privacy Section */}
-      <section id="privacy" className="py-24 bg-[#f8f9fc]">
+      <section id="privacy" className="py-24 bg-white">
         <div className="container mx-auto px-6">
           <div className="mx-auto max-w-6xl">
             <div className="grid items-center gap-16 lg:grid-cols-2">
@@ -432,6 +379,59 @@ export default function LandingPage() {
                 <ScreenshotFrame src="/screenshots/screenshot-2.png" alt="Tentacle — document editor, local-first" />
               </motion.div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section id="features" className="py-24 bg-[#f8f9fc]">
+        <div className="container mx-auto px-6">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-bold text-zinc-900 sm:text-4xl">
+              Everything you need to capture and organize ideas
+            </h2>
+            <p className="mt-4 text-lg text-zinc-500">
+              Powerful features that work locally on your device, with optional cloud AI when you need it.
+            </p>
+          </div>
+
+          <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <FeatureCard
+              illustration={<SearchIllustration />}
+              title="Semantic Search"
+              description="Find notes by meaning, not just keywords. Local embeddings understand what you're looking for — no cloud required."
+              delay={0}
+            />
+            <FeatureCard
+              illustration={<VoiceIllustration />}
+              title="Voice Capture"
+              description="Capture ideas instantly with voice recording. Transcribed locally using Whisper or with your own OpenAI key."
+              delay={0.08}
+            />
+            <FeatureCard
+              illustration={<TagsIllustration />}
+              title="Auto-Tagging"
+              description="Let AI automatically organize your notes with relevant tags. Free users can BYOK, Pro users get it included."
+              delay={0.16}
+            />
+            <FeatureCard
+              illustration={<MarkdownIllustration />}
+              title="Markdown Support"
+              description="Write in Markdown with a beautiful editor. Export to Obsidian or any other Markdown-compatible tool."
+              delay={0.24}
+            />
+            <FeatureCard
+              illustration={<AIIllustration />}
+              title="AI-Powered RAG"
+              description="Chat with your knowledge base. Ask questions and get answers sourced directly from your own notes."
+              delay={0.32}
+            />
+            <FeatureCard
+              illustration={<SyncIllustration />}
+              title="Cloud Sync"
+              description="Optional cloud sync keeps your notes available across all your devices. Encrypted and secure."
+              delay={0.4}
+            />
           </div>
         </div>
       </section>
