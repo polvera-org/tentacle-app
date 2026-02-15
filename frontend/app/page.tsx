@@ -1,33 +1,11 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Shield, Download, ArrowRight, Check, Brain, Search, Mic, Sparkles, PenLine, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-// --- Animated text cycling ---
-function AnimatedText({ texts, interval = 2000 }: { texts: string[]; interval?: number }) {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setIndex((prev) => (prev + 1) % texts.length), interval);
-    return () => clearInterval(timer);
-  }, [texts.length, interval]);
-  return (
-    <span className="relative inline-block">
-      <motion.span
-        key={index}
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -16 }}
-        transition={{ duration: 0.45 }}
-        className="text-indigo-600"
-      >
-        {texts[index]}
-      </motion.span>
-    </span>
-  );
-}
+import { MorphingText } from "@/components/ui/liquid-text";
 
 // --- Browser-chrome screenshot frame ---
 function ScreenshotFrame({ src, alt }: { src: string; alt: string }) {
@@ -176,11 +154,20 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.08 }}
-            className="mx-auto mt-5 max-w-3xl text-5xl font-bold tracking-tight text-zinc-900 sm:text-6xl lg:text-7xl"
+            className="mx-auto mt-5 max-w-3xl text-5xl font-bold tracking-tight text-zinc-900 sm:text-[40pt] lg:text-[4rem]"
           >
-            Your notes,{" "}
-            <AnimatedText texts={heroTexts} />
+            Your notes,
           </motion.h1>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.14 }}
+          >
+            <MorphingText
+              texts={heroTexts}
+              className="text-indigo-600"
+            />
+          </motion.div>
 
           <motion.p
             initial={{ opacity: 0, y: 12 }}
