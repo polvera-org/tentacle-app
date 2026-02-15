@@ -463,7 +463,7 @@ export default function LandingPage() {
                   Download for Free
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="gap-2 border-white/30 text-white hover:bg-white/10">
+              <Button asChild size="lg" variant="outline" className="gap-2 border-white/30 bg-transparent text-white hover:bg-white/10">
                 <Link href="/app">
                   Try Web App
                   <ArrowRight className="h-5 w-5" />
