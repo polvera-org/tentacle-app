@@ -3,41 +3,24 @@
 import { useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { 
-  Search, 
-  Mic, 
-  Tags, 
-  Shield, 
-  Zap, 
-  Download,
-  ArrowRight,
-  Check,
-  Brain,
-  FileText,
-  Cloud,
-  Lock
-} from "lucide-react";
+import { Shield, Download, ArrowRight, Check, Brain, Search, Mic, Sparkles, PenLine, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Animated text component
+// --- Animated text cycling ---
 function AnimatedText({ texts, interval = 2000 }: { texts: string[]; interval?: number }) {
   const [index, setIndex] = useState(0);
-  
   useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((prev) => (prev + 1) % texts.length);
-    }, interval);
+    const timer = setInterval(() => setIndex((prev) => (prev + 1) % texts.length), interval);
     return () => clearInterval(timer);
   }, [texts.length, interval]);
-  
   return (
     <span className="relative inline-block">
       <motion.span
         key={index}
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        transition={{ duration: 0.5 }}
+        exit={{ opacity: 0, y: -16 }}
+        transition={{ duration: 0.45 }}
         className="text-indigo-600"
       >
         {texts[index]}
@@ -46,126 +29,130 @@ function AnimatedText({ texts, interval = 2000 }: { texts: string[]; interval?: 
   );
 }
 
-// Feature card component
-function FeatureCard({ icon: Icon, title, description, delay }: { 
-  icon: React.ElementType; 
-  title: string; 
+// --- Browser-chrome screenshot frame ---
+function ScreenshotFrame({ src, alt }: { src: string; alt: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 shadow-2xl overflow-hidden bg-white">
+      <div className="flex items-center gap-1.5 bg-zinc-100 px-4 py-2.5 border-b border-zinc-200">
+        <div className="h-3 w-3 rounded-full bg-red-400" />
+        <div className="h-3 w-3 rounded-full bg-yellow-400" />
+        <div className="h-3 w-3 rounded-full bg-green-400" />
+        <div className="ml-3 flex-1 h-5 rounded bg-white/70 border border-zinc-200" />
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} className="w-full block" />
+    </div>
+  );
+}
+
+// --- Feature illustrations ---
+
+function SearchIllustration() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Search className="w-6 h-6 text-indigo-600" strokeWidth={1.75} />
+    </div>
+  );
+}
+
+function VoiceIllustration() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Mic className="w-6 h-6 text-violet-600" strokeWidth={1.75} />
+    </div>
+  );
+}
+
+function TagsIllustration() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Sparkles className="w-6 h-6 text-violet-500" strokeWidth={1.75} />
+    </div>
+  );
+}
+
+function MarkdownIllustration() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <PenLine className="w-6 h-6 text-blue-600" strokeWidth={1.75} />
+    </div>
+  );
+}
+
+function AIIllustration() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Brain className="w-6 h-6 text-indigo-700" strokeWidth={1.75} />
+    </div>
+  );
+}
+
+function SyncIllustration() {
+  return (
+    <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Cloud className="w-6 h-6 text-sky-600" strokeWidth={1.75} />
+    </div>
+  );
+}
+
+// --- Feature card with illustration ---
+function FeatureCard({
+  illustration,
+  title,
+  description,
+  delay,
+}: {
+  illustration: React.ReactNode;
+  title: string;
   description: string;
   delay: number;
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.5, delay }}
-      className="group relative rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm transition-all hover:shadow-lg hover:border-indigo-200"
+      className="group rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm transition-all hover:shadow-md hover:border-indigo-200"
     >
-      <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 transition-colors group-hover:bg-indigo-600 group-hover:text-white">
-        <Icon className="h-6 w-6" />
-      </div>
-      <h3 className="mb-2 text-xl font-semibold text-zinc-900">{title}</h3>
-      <p className="text-zinc-600">{description}</p>
+      <div className="mb-5">{illustration}</div>
+      <h3 className="mb-2 text-lg font-semibold text-zinc-900">{title}</h3>
+      <p className="text-sm leading-relaxed text-zinc-500">{description}</p>
     </motion.div>
   );
 }
 
-// Pricing card component
-function PricingCard({ 
-  title, 
-  price, 
-  description, 
-  features, 
-  cta, 
-  href, 
-  highlighted = false 
-}: { 
-  title: string; 
-  price: string; 
-  description: string; 
-  features: string[]; 
-  cta: string; 
-  href: string;
-  highlighted?: boolean;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      whileInView={{ opacity: 1, scale: 1 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.5 }}
-      className={`relative rounded-2xl p-8 ${
-        highlighted 
-          ? 'border-2 border-indigo-600 bg-indigo-50/50' 
-          : 'border border-zinc-200 bg-white'
-      }`}
-    >
-      {highlighted && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-indigo-600 px-4 py-1 text-sm font-medium text-white">
-          Most Popular
-        </div>
-      )}
-      <h3 className="text-lg font-semibold text-zinc-900">{title}</h3>
-      <div className="mt-4 flex items-baseline">
-        <span className="text-4xl font-bold text-zinc-900">{price}</span>
-        {price !== "$0" && <span className="ml-2 text-zinc-500">/month</span>}
-      </div>
-      <p className="mt-2 text-sm text-zinc-600">{description}</p>
-      <ul className="mt-6 space-y-3">
-        {features.map((feature, i) => (
-          <li key={i} className="flex items-start gap-3">
-            <Check className="h-5 w-5 shrink-0 text-indigo-600" />
-            <span className="text-sm text-zinc-600">{feature}</span>
-          </li>
-        ))}
-      </ul>
-      <Button 
-        asChild 
-        className={`mt-8 w-full ${
-          highlighted 
-            ? 'bg-indigo-600 hover:bg-indigo-700' 
-            : 'bg-zinc-900 hover:bg-zinc-800'
-        }`}
-      >
-        <Link href={href}>{cta}</Link>
-      </Button>
-    </motion.div>
-  );
-}
-
+// --- Page ---
 export default function LandingPage() {
   const heroTexts = useMemo(() => [
-    "your second brain",
-    "your knowledge base",
-    "your note companion",
-    "your ideas organized"
+    "your second brain.",
+    "always organized.",
+    "instantly findable.",
+    "privately yours.",
   ], []);
 
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation */}
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-zinc-100 bg-white/80 backdrop-blur-md">
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
-                <Brain className="h-5 w-5" />
+                <Brain className="h-4 w-4" />
               </div>
-              <span className="text-xl font-bold text-zinc-900">Tentacle</span>
+              <span className="text-lg font-bold text-zinc-900">Tentacle</span>
             </Link>
-            <nav className="hidden items-center gap-6 md:flex">
-              <Link href="#features" className="text-sm text-zinc-600 hover:text-zinc-900">Features</Link>
-              <Link href="#privacy" className="text-sm text-zinc-600 hover:text-zinc-900">Privacy</Link>
-              <Link href="#pricing" className="text-sm text-zinc-600 hover:text-zinc-900">Pricing</Link>
+            <nav className="hidden items-center gap-8 md:flex">
+              <Link href="#features" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Features</Link>
+              <Link href="#privacy" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Privacy</Link>
+              <Link href="#pricing" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Pricing</Link>
             </nav>
-            <div className="flex items-center gap-3">
-              <Link 
-                href="/login" 
-                className="hidden text-sm font-medium text-zinc-600 hover:text-zinc-900 md:block"
-              >
+            <div className="flex items-center gap-4">
+              <Link href="/login" className="hidden text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors md:block">
                 Log in
               </Link>
-              <Button asChild>
+              <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700">
                 <Link href="/signup">Get Started</Link>
               </Button>
             </div>
@@ -173,138 +160,122 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden pt-32 pb-20 lg:pt-48 lg:pb-32">
-        <div className="container mx-auto px-4">
-          <div className="mx-auto max-w-4xl text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-700">
-                <Zap className="h-4 w-4" />
-                Now with AI-powered auto-tagging
-              </span>
-            </motion.div>
-            
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="mt-6 text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl lg:text-6xl"
-            >
-              The note-taking app that becomes{" "}
-              <AnimatedText texts={heroTexts} />
-            </motion.h1>
-            
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="mx-auto mt-6 max-w-2xl text-lg text-zinc-600"
-            >
-              Tentacle combines local-first privacy with powerful AI. Capture ideas with voice, 
-              find anything with semantic search, and let AI organize your thoughts automatically.
-            </motion.p>
-            
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row"
-            >
-              <Button asChild size="lg" className="gap-2 bg-indigo-600 hover:bg-indigo-700">
-                <Link href="/signup">
-                  <Download className="h-5 w-5" />
-                  Download for Free
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="lg" className="gap-2">
-                <Link href="/app">
-                  Open Web App
-                  <ArrowRight className="h-5 w-5" />
-                </Link>
-              </Button>
-            </motion.div>
-            
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-              className="mt-4 text-sm text-zinc-500"
-            >
-              Free forever. No credit card required.
-            </motion.p>
-          </div>
-        </div>
-        
-        {/* Background decoration */}
-        <div className="absolute inset-0 -z-10 overflow-hidden">
-          <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 transform">
-            <div className="h-[600px] w-[600px] rounded-full bg-indigo-100/50 blur-3xl" />
-          </div>
+      {/* Hero Section — centered, Notion-style */}
+      <section className="relative overflow-hidden bg-[#fff] pt-32 pb-0 lg:pt-44 pb-24">
+        <div className="container mx-auto px-6 text-center">
+          <motion.p
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400"
+          >
+            Local-first · AI-powered · Private
+          </motion.p>
+
+          <motion.h1
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.08 }}
+            className="mx-auto mt-5 max-w-3xl text-5xl font-bold tracking-tight text-zinc-900 sm:text-6xl lg:text-7xl"
+          >
+            Your notes,{" "}
+            <AnimatedText texts={heroTexts} />
+          </motion.h1>
+
+          <motion.p
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.18 }}
+            className="mx-auto mt-5 max-w-md text-base text-zinc-500"
+          >
+            Capture ideas with voice, find anything with semantic search, and let AI organize your thoughts — all on your device.
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.28 }}
+            className="mt-8 flex items-center justify-center gap-3"
+          >
+            <Button asChild size="lg" className="gap-2 rounded-full bg-zinc-900 px-6 hover:bg-zinc-700 text-white">
+              <Link href="/signup">
+                <Download className="h-4 w-4" />
+                Download for Free
+              </Link>
+            </Button>
+          </motion.div>
+
+          {/* Screenshot — full-width, flush to section bottom */}
+          <motion.div
+            initial={{ opacity: 0, y: 32 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            className="mx-auto mt-16 max-w-5xl"
+          >
+            <ScreenshotFrame src="/screenshots/screenshot-1.png" alt="Tentacle app — document library" />
+          </motion.div>
         </div>
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-20 bg-zinc-50">
-        <div className="container mx-auto px-4">
-          <div className="mx-auto max-w-3xl text-center">
+      <section id="features" className="py-24 bg-[#f8f9fc]">
+        <div className="container mx-auto px-6">
+          <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold text-zinc-900 sm:text-4xl">
               Everything you need to capture and organize ideas
             </h2>
-            <p className="mt-4 text-lg text-zinc-600">
+            <p className="mt-4 text-lg text-zinc-500">
               Powerful features that work locally on your device, with optional cloud AI when you need it.
             </p>
           </div>
-          
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+
+          <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <FeatureCard
-              icon={Search}
+              illustration={<SearchIllustration />}
               title="Semantic Search"
-              description="Find notes by meaning, not just keywords. Our local embeddings understand what you're looking for."
+              description="Find notes by meaning, not just keywords. Local embeddings understand what you're looking for — no cloud required."
               delay={0}
             />
             <FeatureCard
-              icon={Mic}
+              illustration={<VoiceIllustration />}
               title="Voice Capture"
               description="Capture ideas instantly with voice recording. Transcribed locally using Whisper or with your own OpenAI key."
-              delay={0.1}
+              delay={0.08}
             />
             <FeatureCard
-              icon={Tags}
+              illustration={<TagsIllustration />}
               title="Auto-Tagging"
               description="Let AI automatically organize your notes with relevant tags. Free users can BYOK, Pro users get it included."
-              delay={0.2}
+              delay={0.16}
             />
             <FeatureCard
-              icon={FileText}
+              illustration={<MarkdownIllustration />}
               title="Markdown Support"
               description="Write in Markdown with a beautiful editor. Export to Obsidian or any other Markdown-compatible tool."
-              delay={0.3}
+              delay={0.24}
             />
             <FeatureCard
-              icon={Brain}
-              title="AI-Powered"
-              description="Chat with your knowledge base using RAG. Ask questions and get answers from your own notes."
-              delay={0.4}
+              illustration={<AIIllustration />}
+              title="AI-Powered RAG"
+              description="Chat with your knowledge base. Ask questions and get answers sourced directly from your own notes."
+              delay={0.32}
             />
             <FeatureCard
-              icon={Cloud}
+              illustration={<SyncIllustration />}
               title="Cloud Sync"
               description="Optional cloud sync keeps your notes available across all your devices. Encrypted and secure."
-              delay={0.5}
+              delay={0.4}
             />
           </div>
         </div>
       </section>
 
       {/* Privacy Section */}
-      <section id="privacy" className="py-20">
-        <div className="container mx-auto px-4">
+      <section id="privacy" className="py-24 bg-[#f8f9fc]">
+        <div className="container mx-auto px-6">
           <div className="mx-auto max-w-6xl">
-            <div className="grid items-center gap-12 lg:grid-cols-2">
+            <div className="grid items-center gap-16 lg:grid-cols-2">
+              {/* Left: text */}
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
@@ -318,9 +289,9 @@ export default function LandingPage() {
                 <h2 className="mt-6 text-3xl font-bold text-zinc-900 sm:text-4xl">
                   Your notes never leave your device unless you want them to
                 </h2>
-                <p className="mt-4 text-lg text-zinc-600">
-                  Tentacle is built on a local-first architecture. All your notes, embeddings, 
-                  and search indexes are stored locally. We can't read your notes even if we wanted to.
+                <p className="mt-5 text-lg text-zinc-500 leading-relaxed">
+                  Tentacle is built on a local-first architecture. All your notes, embeddings,
+                  and search indexes are stored locally. We can&apos;t read your notes even if we wanted to.
                 </p>
                 <ul className="mt-8 space-y-4">
                   {[
@@ -328,57 +299,26 @@ export default function LandingPage() {
                     "Embeddings computed on-device",
                     "Optional end-to-end encrypted cloud sync",
                     "Export to Obsidian anytime",
-                    "Open source and auditable"
+                    "Open source and auditable",
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-3">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                        <Check className="h-4 w-4" />
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                        <Check className="h-3.5 w-3.5" />
                       </div>
-                      <span className="text-zinc-700">{item}</span>
+                      <span className="text-zinc-600">{item}</span>
                     </li>
                   ))}
                 </ul>
               </motion.div>
-              
+
+              {/* Right: screenshot 2 */}
               <motion.div
                 initial={{ opacity: 0, x: 20 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="relative"
+                transition={{ duration: 0.5, delay: 0.15 }}
               >
-                <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-lg">
-                  <div className="flex items-center gap-4 border-b border-zinc-100 pb-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100">
-                      <Lock className="h-5 w-5 text-zinc-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-zinc-900">Local Storage</p>
-                      <p className="text-sm text-zinc-500">100% private</p>
-                    </div>
-                    <span className="ml-auto rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
-                      Active
-                    </span>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">Documents</span>
-                      <span className="font-medium text-zinc-900">Local SQLite</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">Embeddings</span>
-                      <span className="font-medium text-zinc-900">On-device</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">Search Index</span>
-                      <span className="font-medium text-zinc-900">Local</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">Cloud Sync</span>
-                      <span className="font-medium text-zinc-900">Optional</span>
-                    </div>
-                  </div>
-                </div>
+                <ScreenshotFrame src="/screenshots/screenshot-2.png" alt="Tentacle — document editor, local-first" />
               </motion.div>
             </div>
           </div>
@@ -386,118 +326,146 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-20 bg-zinc-50">
-        <div className="container mx-auto px-4">
-          <div className="mx-auto max-w-3xl text-center">
+      <section id="pricing" className="py-24 bg-white">
+        <div className="container mx-auto px-6">
+          <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold text-zinc-900 sm:text-4xl">
               Simple, transparent pricing
             </h2>
-            <p className="mt-4 text-lg text-zinc-600">
+            <p className="mt-4 text-lg text-zinc-500">
               Start free, upgrade when you need more power. No hidden fees.
             </p>
           </div>
-          
+
           <div className="mx-auto mt-16 grid max-w-4xl gap-8 lg:grid-cols-2">
-            <PricingCard
-              title="Free"
-              price="$0"
-              description="Perfect for getting started with local note-taking"
-              features={[
-                "Local note storage",
-                "Semantic search (local embeddings)",
-                "Voice capture with BYOK",
-                "Manual tagging",
-                "Markdown export to Obsidian",
-                "BYOK auto-tagging (with friction)",
-                "No cloud sync"
-              ]}
-              cta="Download Free"
-              href="/signup"
-            />
-            <PricingCard
-              title="Pro"
-              price="$10"
-              description="Unlock the full power of AI-powered note-taking"
-              features={[
-                "Everything in Free",
-                "Auto-tagging (no API key needed)",
-                "Chat with knowledge base (RAG)",
-                "Cloud sync across devices",
-                "Mobile app access",
-                "Priority support",
-                "Your second brain that organizes itself"
-              ]}
-              cta="Start Pro Trial"
-              href="/signup"
-              highlighted
-            />
+            {/* Free */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.45 }}
+              className="rounded-2xl border border-zinc-200 bg-white p-8"
+            >
+              <p className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Free</p>
+              <div className="mt-4 flex items-baseline">
+                <span className="text-5xl font-bold text-zinc-900">$0</span>
+              </div>
+              <p className="mt-2 text-sm text-zinc-500">Perfect for getting started with local note-taking</p>
+              <ul className="mt-8 space-y-3">
+                {[
+                  "Local note storage",
+                  "Semantic search (local embeddings)",
+                  "Voice capture with BYOK",
+                  "Manual tagging",
+                  "Markdown export to Obsidian",
+                  "BYOK auto-tagging (with friction)",
+                ].map((f, i) => (
+                  <li key={i} className="flex items-start gap-3 text-sm text-zinc-600">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Button asChild className="mt-8 w-full bg-zinc-900 hover:bg-zinc-800">
+                <Link href="/signup">Download Free</Link>
+              </Button>
+            </motion.div>
+
+            {/* Pro */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.45, delay: 0.1 }}
+              className="relative rounded-2xl border-2 border-indigo-600 bg-indigo-50/40 p-8"
+            >
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-indigo-600 px-4 py-1 text-xs font-semibold text-white">
+                Most Popular
+              </div>
+              <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">Pro</p>
+              <div className="mt-4 flex items-baseline gap-2">
+                <span className="text-5xl font-bold text-zinc-900">$10</span>
+                <span className="text-zinc-400">/month</span>
+              </div>
+              <p className="mt-2 text-sm text-zinc-500">Unlock the full power of AI-powered note-taking</p>
+              <ul className="mt-8 space-y-3">
+                {[
+                  "Everything in Free",
+                  "Auto-tagging (no API key needed)",
+                  "Chat with knowledge base (RAG)",
+                  "Cloud sync across devices",
+                  "Mobile app access",
+                  "Priority support",
+                ].map((f, i) => (
+                  <li key={i} className="flex items-start gap-3 text-sm text-zinc-600">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Button asChild className="mt-8 w-full bg-indigo-600 hover:bg-indigo-700">
+                <Link href="/signup">Start Pro Trial</Link>
+              </Button>
+            </motion.div>
           </div>
-          
-          <p className="mt-8 text-center text-sm text-zinc-500">
-            Pro subscription billed monthly. Cancel anytime.
+
+          <p className="mt-8 text-center text-sm text-zinc-400">
+            Pro billed monthly. Cancel anytime.
           </p>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20">
-        <div className="container mx-auto px-4">
+      {/* CTA Section — clean, SQLite-inspired */}
+      <section className="py-24 bg-[#f8f9fc]">
+        <div className="container mx-auto px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
-            className="mx-auto max-w-4xl rounded-3xl bg-indigo-600 px-8 py-16 text-center sm:px-16"
+            className="mx-auto max-w-2xl text-center"
           >
-            <h2 className="text-3xl font-bold text-white sm:text-4xl">
+            <h2 className="text-4xl font-bold text-zinc-900 sm:text-5xl">
               Ready to build your second brain?
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-lg text-indigo-100">
-              Join thousands of users who trust Tentacle to organize their thoughts, 
-              capture ideas, and find knowledge instantly.
+            <p className="mx-auto mt-5 text-lg text-zinc-500">
+              Join people who trust Tentacle to organize their thoughts,
+              capture ideas, and find knowledge instantly — all on their own device.
             </p>
-            <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Button asChild size="lg" variant="secondary" className="gap-2">
+            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Button asChild size="lg" className="gap-2 bg-indigo-600 hover:bg-indigo-700">
                 <Link href="/signup">
-                  <Download className="h-5 w-5" />
+                  <Download className="h-4 w-4" />
                   Download for Free
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="gap-2 border-white/30 bg-transparent text-white hover:bg-white/10">
+              <Button asChild size="lg" variant="outline" className="gap-2">
                 <Link href="/app">
                   Try Web App
-                  <ArrowRight className="h-5 w-5" />
+                  <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
             </div>
-            <p className="mt-4 text-sm text-indigo-200">
-              No credit card required. Free forever.
-            </p>
+            <p className="mt-5 text-sm text-zinc-400">No credit card required. Free forever.</p>
           </motion.div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-200 bg-zinc-50 py-12">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
-                <Brain className="h-5 w-5" />
-              </div>
-              <span className="text-lg font-bold text-zinc-900">Tentacle</span>
+      <footer className="border-t border-zinc-200 bg-white py-8">
+        <div className="container mx-auto px-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-indigo-600 text-white">
+              <Brain className="h-3.5 w-3.5" />
             </div>
-            <p className="text-sm text-zinc-500">
-              © 2026 Tentacle. All rights reserved.
-            </p>
-            <div className="flex items-center gap-6">
-              <Link href="/login" className="text-sm text-zinc-600 hover:text-zinc-900">
-                Log in
-              </Link>
-              <Link href="/signup" className="text-sm text-zinc-600 hover:text-zinc-900">
-                Sign up
-              </Link>
-            </div>
+            <span className="text-sm font-semibold text-zinc-900">Tentacle</span>
+          </div>
+          <p className="text-sm text-zinc-400">© 2026 Tentacle. All rights reserved.</p>
+          <div className="flex items-center gap-6">
+            <Link href="#features" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Features</Link>
+            <Link href="#privacy" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Privacy</Link>
+            <Link href="#pricing" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Pricing</Link>
+            <Link href="/login" className="text-sm text-zinc-500 hover:text-zinc-900 transition-colors">Log in</Link>
           </div>
         </div>
       </footer>
