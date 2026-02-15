@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Shield, Download, ArrowRight, Check, Brain, Search, Mic, Sparkles, PenLine, Cloud } from "lucide-react";
+import { Shield, Download, ArrowRight, Check, Brain, Search, Mic, Sparkles, PenLine, Cloud, Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MorphingText } from "@/components/ui/liquid-text";
 
@@ -133,6 +133,9 @@ export default function LandingPage() {
               <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700">
                 <Link href="/signup">Get Started</Link>
               </Button>
+              <Link href="https://github.com/polvera-org/tentacle-app/" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-900 transition-colors">
+                <Github className="h-5 w-5" />
+              </Link>
             </div>
           </div>
         </div>
