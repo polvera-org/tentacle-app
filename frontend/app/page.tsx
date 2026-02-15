@@ -217,8 +217,119 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* How it works Section */}
+      <section className="py-28 bg-[#f8f9fc] overflow-hidden">
+        <div className="container mx-auto px-6">
+          <div className="mx-auto max-w-xl text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4 }}
+            >
+              <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-700">
+                How it works
+              </span>
+            </motion.div>
+            <motion.h2
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.45, delay: 0.08 }}
+              className="mt-6 text-3xl font-bold text-zinc-900 sm:text-4xl"
+            >
+              From thought to organized knowledge — in seconds
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: 0.16 }}
+              className="mt-4 text-base text-zinc-500"
+            >
+              No complex setup. No manual filing. Just capture and let Tentacle do the rest.
+            </motion.p>
+          </div>
+
+          <div className="mt-20 mx-auto max-w-4xl grid gap-6 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+            {/* Step 1 */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="group rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm"
+            >
+              <div className="flex items-start justify-between mb-6">
+                <span className="text-[5rem] leading-none font-black text-zinc-100 select-none -mt-2 -ml-1">1</span>
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Mic className="w-7 h-7 text-indigo-600" strokeWidth={1.5} />
+                </div>
+              </div>
+              <h3 className="text-base font-semibold text-zinc-900 text-left">Record your voice</h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-500 text-left">
+                Speak your thoughts. No typing needed — Tentacle captures audio directly on your device.
+              </p>
+            </motion.div>
+
+            {/* Connector 1→2 */}
+            <div className="hidden lg:flex items-center justify-center px-1">
+              <ArrowRight className="w-5 h-5 text-zinc-300" />
+            </div>
+
+            {/* Step 2 */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.15 }}
+              className="group rounded-2xl border border-violet-200 bg-white p-8 text-center shadow-sm"
+            >
+              <div className="flex items-start justify-between mb-6">
+                <span className="text-[5rem] leading-none font-black text-violet-50 select-none -mt-2 -ml-1">2</span>
+                <div className="w-14 h-14 rounded-2xl bg-violet-50 border border-violet-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Sparkles className="w-7 h-7 text-violet-600" strokeWidth={1.5} />
+                </div>
+              </div>
+              <h3 className="text-base font-semibold text-zinc-900 text-left">AI organizes everything</h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-500 text-left">
+                Transcribed, tagged, and indexed automatically. Your note is searchable before you blink.
+              </p>
+            </motion.div>
+
+            {/* Connector 2→3 */}
+            <div className="hidden lg:flex items-center justify-center px-1">
+              <ArrowRight className="w-5 h-5 text-zinc-300" />
+            </div>
+
+            {/* Step 3 */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              className="group rounded-2xl border border-dashed border-sky-200 bg-white/60 p-8 text-center shadow-sm"
+            >
+              <div className="flex items-start justify-between mb-6">
+                <span className="text-[5rem] leading-none font-black text-sky-50 select-none -mt-2 -ml-1">3</span>
+                <div className="relative w-14 h-14 rounded-2xl bg-sky-50 border border-sky-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Cloud className="w-7 h-7 text-sky-500" strokeWidth={1.5} />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-left mb-2">
+                <h3 className="text-base font-semibold text-zinc-900">Sync everywhere</h3>
+                <span className="text-[11px] font-medium bg-zinc-100 text-zinc-400 px-2 py-0.5 rounded-full leading-none shrink-0">optional</span>
+              </div>
+              <p className="text-sm leading-relaxed text-zinc-500 text-left">
+                Enable cloud sync to access your notes on any device, encrypted end-to-end.
+              </p>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
-      <section id="features" className="py-24 bg-[#f8f9fc]">
+      <section id="features" className="py-24 bg-white">
         <div className="container mx-auto px-6">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold text-zinc-900 sm:text-4xl">
