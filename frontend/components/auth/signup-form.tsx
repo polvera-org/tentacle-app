@@ -148,7 +148,7 @@ export function SignupForm() {
         type="button"
         onClick={handleGoogleSignIn}
         disabled={isGoogleLoading}
-        className="w-full h-12 px-4 bg-white border border-gray-300 rounded-full text-gray-700 font-medium hover:bg-gray-50 transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+        className="w-full h-12 px-4 bg-white border border-gray-300 rounded-full text-gray-700 font-medium hover:bg-gray-50 transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
       >
         {isGoogleLoading ? (
           <span className="flex items-center justify-center gap-2">
@@ -198,7 +198,7 @@ export function SignupForm() {
             required
             autoFocus
             aria-required="true"
-            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
             placeholder="you@example.com"
           />
         </div>
@@ -219,7 +219,7 @@ export function SignupForm() {
             onChange={(e) => setPassword(e.target.value)}
             required
             aria-required="true"
-            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
             placeholder="••••••••"
           />
           <PasswordStrengthIndicator password={password} />
@@ -242,7 +242,7 @@ export function SignupForm() {
             required
             aria-required="true"
             aria-describedby={confirmPassword && !doPasswordsMatch ? 'password-mismatch' : undefined}
-            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
             placeholder="••••••••"
           />
           {confirmPassword && !doPasswordsMatch && (
@@ -259,15 +259,15 @@ export function SignupForm() {
             type="checkbox"
             checked={agreedToTerms}
             onChange={(e) => setAgreedToTerms(e.target.checked)}
-            className="mt-1 h-4 w-4 rounded border-gray-300 bg-white text-violet-600 focus:ring-violet-500 focus:ring-offset-white"
+            className="mt-1 h-4 w-4 rounded border-gray-300 bg-white text-brand-600 focus:ring-brand-500 focus:ring-offset-white"
           />
           <label htmlFor="terms" className="ml-2 text-sm text-gray-600">
             I agree to the{' '}
-            <Link href="/terms" className="text-violet-600 hover:text-violet-700">
+            <Link href="/terms" className="text-brand-600 hover:text-brand-700">
               Terms of Service
             </Link>{' '}
             and{' '}
-            <Link href="/privacy" className="text-violet-600 hover:text-violet-700">
+            <Link href="/privacy" className="text-brand-600 hover:text-brand-700">
               Privacy Policy
             </Link>
           </label>
@@ -277,7 +277,7 @@ export function SignupForm() {
           type="submit"
           disabled={isLoading || !isFormValid}
           aria-disabled={isLoading || !isFormValid}
-          className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+          className="w-full h-12 px-4 bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
         >
           {isLoading ? (
             <span className="flex items-center justify-center gap-2">

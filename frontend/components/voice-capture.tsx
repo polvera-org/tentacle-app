@@ -53,8 +53,8 @@ export function VoiceCapture({ onTranscription, onError }: VoiceCaptureProps) {
           aria-label={isRecording ? 'Stop recording' : 'Start recording'}
           className={`min-w-[44px] h-[44px] rounded-full flex items-center justify-center transition-all ${
             isRecording
-              ? 'bg-violet-600 text-white ring-4 ring-violet-200'
-              : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+              ? 'bg-brand-600 text-white ring-4 ring-brand-200'
+              : 'bg-brand-100 text-brand-700 hover:bg-brand-200'
           } ${isTranscribing ? 'opacity-60 cursor-not-allowed' : ''}`}
         >
           {isRecording ? (

@@ -180,13 +180,13 @@ export function InputSourceCards({ onVoiceTranscription }: InputSourceCardsProps
             disabled={!source.onClick || (source.title === 'Voice' && isTranscribing)}
             className={`border rounded-2xl p-6 flex flex-col items-center text-center transition-all ${
               source.onClick
-                ? 'cursor-pointer hover:border-violet-300 hover:shadow-sm'
+                ? 'cursor-pointer hover:border-brand-300 hover:shadow-sm'
                 : 'cursor-default opacity-60'
             } ${
               source.isActive && source.title === 'Voice' && isRecording
                 ? 'border-red-500 bg-red-50 shadow-md'
                 : source.isActive
-                ? 'border-violet-500 bg-violet-50 shadow-md'
+                ? 'border-brand-500 bg-brand-50 shadow-md'
                 : 'border-gray-200 bg-white'
             }`}
           >

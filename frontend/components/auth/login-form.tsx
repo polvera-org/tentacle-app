@@ -85,7 +85,7 @@ export function LoginForm() {
         type="button"
         onClick={handleGoogleSignIn}
         disabled={isGoogleLoading}
-        className="w-full h-12 px-4 bg-white border border-gray-300 rounded-full text-gray-700 font-medium hover:bg-gray-50 transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+        className="w-full h-12 px-4 bg-white border border-gray-300 rounded-full text-gray-700 font-medium hover:bg-gray-50 transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
       >
         {isGoogleLoading ? (
           <span className="flex items-center justify-center gap-2">
@@ -136,7 +136,7 @@ export function LoginForm() {
             autoFocus
             aria-required="true"
             aria-describedby={error ? 'email-error' : undefined}
-            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
             placeholder="you@example.com"
           />
         </div>
@@ -159,7 +159,7 @@ export function LoginForm() {
             minLength={8}
             aria-required="true"
             aria-describedby={error ? 'password-error' : undefined}
-            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+            className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
             placeholder="••••••••"
           />
         </div>
@@ -172,7 +172,7 @@ export function LoginForm() {
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 bg-white text-violet-600 focus:ring-violet-500 focus:ring-offset-white"
+              className="h-4 w-4 rounded border-gray-300 bg-white text-brand-600 focus:ring-brand-500 focus:ring-offset-white"
             />
             <label htmlFor="remember" className="ml-2 text-sm text-gray-600">
               Remember me
@@ -180,7 +180,7 @@ export function LoginForm() {
           </div>
           <Link
             href="/reset-password"
-            className="text-sm text-violet-600 hover:text-violet-700 transition-colors"
+            className="text-sm text-brand-600 hover:text-brand-700 transition-colors"
           >
             Forgot password?
           </Link>
@@ -190,7 +190,7 @@ export function LoginForm() {
           type="submit"
           disabled={isLoading}
           aria-disabled={isLoading}
-          className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+          className="w-full h-12 px-4 bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
         >
           {isLoading ? (
             <span className="flex items-center justify-center gap-2">

@@ -94,7 +94,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           title={btn.title}
           className={`min-w-[44px] h-[44px] px-3 rounded-full text-sm transition-all ${btn.className || ''} ${
             btn.active
-              ? 'bg-violet-100 text-violet-700'
+              ? 'bg-brand-100 text-brand-700'
               : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
@@ -111,7 +111,7 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
           title={btn.title}
           className={`min-w-[44px] h-[44px] px-3 rounded-full flex items-center justify-center transition-all ${
             btn.active
-              ? 'bg-violet-100 text-violet-700'
+              ? 'bg-brand-100 text-brand-700'
               : 'text-gray-600 hover:bg-gray-100'
           }`}
         >

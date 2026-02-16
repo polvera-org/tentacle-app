@@ -399,7 +399,7 @@ function DocumentDetailContent() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <button
             onClick={() => router.push('/app')}
-            className="h-10 px-4 text-sm font-medium text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
+            className="h-10 px-4 text-sm font-medium text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
           >
             <span className="flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -457,19 +457,19 @@ function DocumentDetailContent() {
         <div className="mb-4">
           <div className="flex items-center gap-1.5">
             <div
-              className="flex-1 min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-500/20 cursor-text transition-all"
+              className="flex-1 min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 cursor-text transition-all"
               onClick={() => tagInputRef.current?.focus()}
             >
               {tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 text-xs font-medium font-mono bg-violet-100 text-violet-800 rounded-md"
+                  className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 text-xs font-medium font-mono bg-brand-100 text-brand-800 rounded-md"
                 >
                   #{tag}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeTag(tag) }}
-                    className="flex items-center justify-center w-3.5 h-3.5 rounded-sm text-violet-500 hover:text-violet-900 hover:bg-violet-200 transition-colors focus:outline-none"
+                    className="flex items-center justify-center w-3.5 h-3.5 rounded-sm text-brand-500 hover:text-brand-900 hover:bg-brand-200 transition-colors focus:outline-none"
                     aria-label={`Remove tag ${tag}`}
                   >
                     <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -492,7 +492,7 @@ function DocumentDetailContent() {
               type="button"
               onClick={handleToggleTagsLock}
               title={isTagsLocked ? 'Tags locked. Click to enable auto-tagging' : 'Lock tags from auto-tagging'}
-              className="flex-shrink-0 p-1.5 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-1 rounded"
+              className="flex-shrink-0 p-1.5 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 rounded"
               aria-label={isTagsLocked ? 'Unlock tags' : 'Lock tags'}
             >
               {isTagsLocked ? (

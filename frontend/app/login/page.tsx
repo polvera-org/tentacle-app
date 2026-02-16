@@ -7,7 +7,7 @@ function LoginFormFallback() {
     <div className="space-y-5 animate-pulse">
       <div className="h-12 bg-gray-100 rounded-full" />
       <div className="h-12 bg-gray-100 rounded-full" />
-      <div className="h-12 bg-violet-100 rounded-full" />
+      <div className="h-12 bg-brand-100 rounded-full" />
     </div>
   )
 }
@@ -33,7 +33,7 @@ export default function LoginPage() {
           Don&apos;t have an account?{' '}
           <Link
             href="/signup"
-            className="font-medium text-violet-600 hover:text-violet-700 transition-colors"
+            className="font-medium text-brand-600 hover:text-brand-700 transition-colors"
           >
             Sign up
           </Link>

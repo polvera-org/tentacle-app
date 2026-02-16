@@ -20,7 +20,7 @@ export default function ResetPasswordConfirmPage() {
           Need help?{' '}
           <Link
             href="/login"
-            className="font-medium text-violet-600 hover:text-violet-700 transition-colors"
+            className="font-medium text-brand-600 hover:text-brand-700 transition-colors"
           >
             Contact support
           </Link>

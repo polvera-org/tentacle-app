@@ -19,7 +19,7 @@ export default function DashboardPage() {
             type="button"
             onClick={() => setIsSettingsOpen(true)}
             aria-label="Open settings"
-            className="h-11 w-11 inline-flex items-center justify-center text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white"
+            className="h-11 w-11 inline-flex items-center justify-center text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white"
           >
             <svg
               aria-hidden="true"
@@ -54,7 +54,7 @@ export default function DashboardPage() {
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search documents"
               autoComplete="off"
-              className="w-full h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+              className="w-full h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             />
           </div>
           <DocumentGrid searchQuery={debouncedSearchQuery} />

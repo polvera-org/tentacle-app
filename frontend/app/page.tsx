@@ -28,24 +28,24 @@ function ScreenshotFrame({ src, alt }: { src: string; alt: string }) {
 
 function SearchIllustration() {
   return (
-    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
-      <Search className="w-6 h-6 text-indigo-600" strokeWidth={1.75} />
+    <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Search className="w-6 h-6 text-brand-600" strokeWidth={1.75} />
     </div>
   );
 }
 
 function VoiceIllustration() {
   return (
-    <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
-      <Mic className="w-6 h-6 text-violet-600" strokeWidth={1.75} />
+    <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Mic className="w-6 h-6 text-brand-600" strokeWidth={1.75} />
     </div>
   );
 }
 
 function TagsIllustration() {
   return (
-    <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
-      <Sparkles className="w-6 h-6 text-violet-500" strokeWidth={1.75} />
+    <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Sparkles className="w-6 h-6 text-brand-500" strokeWidth={1.75} />
     </div>
   );
 }
@@ -60,8 +60,8 @@ function MarkdownIllustration() {
 
 function AIIllustration() {
   return (
-    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
-      <Brain className="w-6 h-6 text-indigo-700" strokeWidth={1.75} />
+    <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-200/60 backdrop-blur-sm flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-110">
+      <Brain className="w-6 h-6 text-brand-700" strokeWidth={1.75} />
     </div>
   );
 }
@@ -92,7 +92,7 @@ function FeatureCard({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.5, delay }}
-      className="group rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm transition-all hover:shadow-md hover:border-indigo-200"
+      className="group rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm transition-all hover:shadow-md hover:border-brand-200"
     >
       <div className="mb-5">{illustration}</div>
       <h3 className="mb-2 text-lg font-semibold text-zinc-900">{title}</h3>
@@ -138,7 +138,7 @@ export default function LandingPage() {
               <Link href="/login" className="hidden text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors md:block">
                 Log in
               </Link>
-              <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+              <Button asChild size="sm" className="bg-brand-600 hover:bg-brand-700">
                 <Link href="/signup">Get Started</Link>
               </Button>
               <Link href="https://github.com/polvera-org/tentacle-app/" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-900 transition-colors">
@@ -158,7 +158,7 @@ export default function LandingPage() {
             transition={{ duration: 0.4 }}
             className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400"
           >
-            Local-first · AI-powered · Private
+            Local-first · Open-Source · Private
           </motion.p>
 
           <motion.h1
@@ -176,7 +176,7 @@ export default function LandingPage() {
           >
             <MorphingText
               texts={heroTexts}
-              className="text-indigo-600"
+              className="text-brand-600"
             />
           </motion.div>
 
@@ -225,7 +225,7 @@ export default function LandingPage() {
               viewport={{ once: true }}
               transition={{ duration: 0.4 }}
             >
-              <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-700">
+              <span className="inline-flex items-center rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5 text-sm font-medium text-brand-700">
                 How it works
               </span>
             </motion.div>
@@ -260,8 +260,8 @@ export default function LandingPage() {
             >
               <div className="flex items-start justify-between mb-8">
                 <span className="text-[6rem] leading-none font-black text-zinc-100 select-none -mt-2 -ml-1">1</span>
-                <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
-                  <Mic className="w-8 h-8 text-indigo-600" strokeWidth={1.5} />
+                <div className="w-16 h-16 rounded-2xl bg-brand-50 border border-brand-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Mic className="w-8 h-8 text-brand-600" strokeWidth={1.5} />
                 </div>
               </div>
               <h3 className="text-lg font-semibold text-zinc-900 text-left">Record your voice</h3>
@@ -281,12 +281,12 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.15 }}
-              className="group rounded-2xl border border-violet-200 bg-white p-10 text-center shadow-sm"
+              className="group rounded-2xl border border-brand-200 bg-white p-10 text-center shadow-sm"
             >
               <div className="flex items-start justify-between mb-8">
-                <span className="text-[6rem] leading-none font-black text-violet-50 select-none -mt-2 -ml-1">2</span>
-                <div className="w-16 h-16 rounded-2xl bg-violet-50 border border-violet-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
-                  <Sparkles className="w-8 h-8 text-violet-600" strokeWidth={1.5} />
+                <span className="text-[6rem] leading-none font-black text-brand-50 select-none -mt-2 -ml-1">2</span>
+                <div className="w-16 h-16 rounded-2xl bg-brand-50 border border-brand-200/60 flex items-center justify-center transition-transform duration-300 ease-out group-hover:scale-105">
+                  <Sparkles className="w-8 h-8 text-brand-600" strokeWidth={1.5} />
                 </div>
               </div>
               <h3 className="text-lg font-semibold text-zinc-900 text-left">AI organizes everything</h3>
@@ -351,7 +351,7 @@ export default function LandingPage() {
                 </p>
                 <ul className="mt-8 space-y-4">
                   {[
-                    "All data stored locally in SQLite",
+                    "All data stored in a local vector database",
                     "Embeddings computed on-device",
                     "Optional end-to-end encrypted cloud sync",
                     "Export to Obsidian anytime",
@@ -470,7 +470,7 @@ export default function LandingPage() {
                   "BYOK auto-tagging (with friction)",
                 ].map((f, i) => (
                   <li key={i} className="flex items-start gap-3 text-sm text-zinc-600">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
                     {f}
                   </li>
                 ))}
@@ -486,12 +486,12 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.45, delay: 0.1 }}
-              className="relative rounded-2xl border-2 border-indigo-600 bg-indigo-50/40 p-8"
+              className="relative rounded-2xl border-2 border-brand-600 bg-brand-50/40 p-8"
             >
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-indigo-600 px-4 py-1 text-xs font-semibold text-white">
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-4 py-1 text-xs font-semibold text-white">
                 Most Popular
               </div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">Pro</p>
+              <p className="text-sm font-semibold uppercase tracking-wider text-brand-600">Pro</p>
               <div className="mt-4 flex items-baseline gap-2">
                 <span className="text-5xl font-bold text-zinc-900">$10</span>
                 <span className="text-zinc-400">/month</span>
@@ -507,12 +507,12 @@ export default function LandingPage() {
                   "Priority support",
                 ].map((f, i) => (
                   <li key={i} className="flex items-start gap-3 text-sm text-zinc-600">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
                     {f}
                   </li>
                 ))}
               </ul>
-              <Button asChild className="mt-8 w-full bg-indigo-600 hover:bg-indigo-700">
+              <Button asChild className="mt-8 w-full bg-brand-600 hover:bg-brand-700">
                 <Link href="/signup">Start Pro Trial</Link>
               </Button>
             </motion.div>
@@ -542,7 +542,7 @@ export default function LandingPage() {
               capture ideas, and find knowledge instantly — all on their own device.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Button asChild size="lg" className="gap-2 bg-indigo-600 hover:bg-indigo-700">
+              <Button asChild size="lg" className="gap-2 bg-brand-600 hover:bg-brand-700">
                 <Link href="/signup">
                   <Download className="h-4 w-4" />
                   Download for Free

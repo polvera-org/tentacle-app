@@ -20,7 +20,7 @@ export default function ResetPasswordPage() {
           Remember your password?{' '}
           <Link
             href="/login"
-            className="font-medium text-violet-600 hover:text-violet-700 transition-colors"
+            className="font-medium text-brand-600 hover:text-brand-700 transition-colors"
           >
             Sign in
           </Link>

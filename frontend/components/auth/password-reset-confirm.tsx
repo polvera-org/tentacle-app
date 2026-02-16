@@ -99,7 +99,7 @@ export function PasswordResetConfirm() {
         </p>
         <Link
           href="/login"
-          className="inline-block text-violet-600 hover:text-violet-700 text-sm"
+          className="inline-block text-brand-600 hover:text-brand-700 text-sm"
         >
           Go to login
         </Link>
@@ -119,7 +119,7 @@ export function PasswordResetConfirm() {
         <p className="text-gray-600 text-sm">{error}</p>
         <Link
           href="/reset-password"
-          className="inline-block text-violet-600 hover:text-violet-700 text-sm"
+          className="inline-block text-brand-600 hover:text-brand-700 text-sm"
         >
           Request new reset link
         </Link>
@@ -160,7 +160,7 @@ export function PasswordResetConfirm() {
           required
           autoFocus
           aria-required="true"
-          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
           placeholder="••••••••"
         />
         <ul className="mt-2 space-y-1">
@@ -196,7 +196,7 @@ export function PasswordResetConfirm() {
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
           aria-required="true"
-          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+          className="w-full h-12 px-5 bg-white border border-gray-300 rounded-full text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
           placeholder="••••••••"
         />
         {confirmPassword && !doPasswordsMatch && (
@@ -210,7 +210,7 @@ export function PasswordResetConfirm() {
         type="submit"
         disabled={isLoading}
         aria-disabled={isLoading}
-        className="w-full h-12 px-4 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+        className="w-full h-12 px-4 bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
       >
         {isLoading ? (
           <span className="flex items-center justify-center gap-2">
