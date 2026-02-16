@@ -36,6 +36,83 @@ const PAST_KEY_VALUES_NAME: &str = "past_key_values.";
 const USE_CACHE_BRANCH_NAME: &str = "use_cache_branch";
 const CACHE_POSITION_NAME: &str = "cache_position";
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingModelLoadStatus {
+    Idle,
+    Loading,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingModelLoadStage {
+    Starting,
+    ResolvingArtifacts,
+    LoadingTokenizer,
+    CreatingSession,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingModelLoadStatePayload {
+    pub status: EmbeddingModelLoadStatus,
+    pub stage: EmbeddingModelLoadStage,
+    pub progress: f32,
+    pub message: String,
+    pub error: Option<String>,
+}
+
+impl EmbeddingModelLoadStatePayload {
+    pub fn idle() -> Self {
+        Self {
+            status: EmbeddingModelLoadStatus::Idle,
+            stage: EmbeddingModelLoadStage::Starting,
+            progress: 0.0,
+            message: "Waiting to load embedding model.".to_owned(),
+            error: None,
+        }
+    }
+
+    fn loading(stage: EmbeddingModelLoadStage, progress: f32, message: &str) -> Self {
+        Self {
+            status: EmbeddingModelLoadStatus::Loading,
+            stage,
+            progress,
+            message: message.to_owned(),
+            error: None,
+        }
+    }
+
+    fn ready() -> Self {
+        Self {
+            status: EmbeddingModelLoadStatus::Ready,
+            stage: EmbeddingModelLoadStage::Ready,
+            progress: 1.0,
+            message: "Embedding model is ready.".to_owned(),
+            error: None,
+        }
+    }
+
+    fn failed(error: String) -> Self {
+        Self {
+            status: EmbeddingModelLoadStatus::Failed,
+            stage: EmbeddingModelLoadStage::Failed,
+            progress: 1.0,
+            message: "Failed to load embedding model.".to_owned(),
+            error: Some(error),
+        }
+    }
+}
+
+impl Default for EmbeddingModelLoadStatePayload {
+    fn default() -> Self {
+        Self::idle()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingSyncDocumentPayload {
     pub id: String,
@@ -112,12 +189,34 @@ fn l2_normalize(mut values: Vec<f32>) -> Vec<f32> {
 
 impl EmbeddingEngine {
     fn initialize() -> Result<Self, EmbeddingError> {
+        Self::initialize_with_progress(|_| {})
+    }
+
+    fn initialize_with_progress<F>(mut report_progress: F) -> Result<Self, EmbeddingError>
+    where
+        F: FnMut(EmbeddingModelLoadStatePayload),
+    {
+        report_progress(EmbeddingModelLoadStatePayload::loading(
+            EmbeddingModelLoadStage::Starting,
+            0.05,
+            "Starting embedding model initialization...",
+        ));
         let api = HfApi::new().map_err(|error| {
             EmbeddingError::ModelArtifacts(format!("failed to create hf-hub client: {error}"))
         })?;
         let repo = api.model(HF_EMBEDDING_REPO_ID.to_owned());
+        report_progress(EmbeddingModelLoadStatePayload::loading(
+            EmbeddingModelLoadStage::ResolvingArtifacts,
+            0.3,
+            "Resolving model artifacts...",
+        ));
         let artifacts = resolve_artifacts(&repo)?;
 
+        report_progress(EmbeddingModelLoadStatePayload::loading(
+            EmbeddingModelLoadStage::LoadingTokenizer,
+            0.55,
+            "Loading tokenizer...",
+        ));
         let tokenizer = Tokenizer::from_file(&artifacts.tokenizer_path).map_err(|error| {
             EmbeddingError::ModelArtifacts(format!(
                 "failed to load tokenizer from {}: {error}",
@@ -125,6 +224,11 @@ impl EmbeddingEngine {
             ))
         })?;
 
+        report_progress(EmbeddingModelLoadStatePayload::loading(
+            EmbeddingModelLoadStage::CreatingSession,
+            0.8,
+            "Creating ONNX runtime session...",
+        ));
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(1)?
@@ -653,6 +757,67 @@ fn embed_document_text(text: &str) -> Result<Vec<f32>, EmbeddingError> {
     engine.embed_text(text)
 }
 
+pub fn preload_embedding_model<F>(mut on_state: F) -> Result<(), EmbeddingError>
+where
+    F: FnMut(EmbeddingModelLoadStatePayload),
+{
+    let started = Instant::now();
+    if EMBEDDING_ENGINE.get().is_some() {
+        let ready = EmbeddingModelLoadStatePayload::ready();
+        log::info!(
+            "[embeddings][startup] status={:?} stage={:?} progress={} elapsed_ms={} cached=true",
+            ready.status,
+            ready.stage,
+            ready.progress,
+            started.elapsed().as_millis()
+        );
+        on_state(ready);
+        return Ok(());
+    }
+
+    let result = EMBEDDING_ENGINE.get_or_try_init(|| {
+        EmbeddingEngine::initialize_with_progress(|state| {
+            log::info!(
+                "[embeddings][startup] status={:?} stage={:?} progress={} message=\"{}\"",
+                state.status,
+                state.stage,
+                state.progress,
+                state.message
+            );
+            on_state(state);
+        })
+        .map(Mutex::new)
+    });
+
+    match result {
+        Ok(_) => {
+            let ready = EmbeddingModelLoadStatePayload::ready();
+            log::info!(
+                "[embeddings][startup] status={:?} stage={:?} progress={} elapsed_ms={} cached=false",
+                ready.status,
+                ready.stage,
+                ready.progress,
+                started.elapsed().as_millis()
+            );
+            on_state(ready);
+            Ok(())
+        }
+        Err(error) => {
+            let failed = EmbeddingModelLoadStatePayload::failed(error.to_string());
+            log::error!(
+                "[embeddings][startup] status={:?} stage={:?} progress={} elapsed_ms={} error={}",
+                failed.status,
+                failed.stage,
+                failed.progress,
+                started.elapsed().as_millis(),
+                error
+            );
+            on_state(failed);
+            Err(error)
+        }
+    }
+}
+
 pub fn sync_document_embeddings(
     store: &mut DocumentCacheStore,
     document: &EmbeddingSyncDocumentPayload,
@@ -664,7 +829,10 @@ pub fn sync_document_embeddings(
     if let Some(lookup) = metadata_lookup {
         if let Some(existing) = lookup.get(&document.id) {
             if existing.content_hash == content_hash {
-                // Whole-document embedding is current; still refresh chunk embeddings below.
+                log::info!(
+                    "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
+                    document.id
+                );
             } else {
                 let vector = embed_document_text(&source_text)?;
                 store.upsert_document_embedding(&CachedDocumentEmbeddingPayload {
@@ -700,17 +868,30 @@ pub fn sync_document_embeddings(
                 vector,
                 updated_at: document.updated_at.clone(),
             })?;
+        } else {
+            log::info!(
+                "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
+                document.id
+            );
         }
     }
 
     let plain_body = crate::text_processing::extract_plain_text_from_tiptap_or_raw(&document.body);
     let chunks = chunk_document_text(&document.title, &plain_body);
-    let combined_hash = compute_chunk_content_hash(
-        &chunks
-            .iter()
-            .map(|chunk| chunk.text.clone())
-            .collect::<Vec<_>>(),
-    );
+    let chunk_texts = chunks
+        .iter()
+        .map(|chunk| chunk.text.clone())
+        .collect::<Vec<_>>();
+    let combined_hash = compute_chunk_content_hash(&chunk_texts);
+    let existing_chunk_hash =
+        store.get_document_chunk_embedding_content_hash(&document.id, LOCAL_EMBEDDING_MODEL_ID)?;
+    if existing_chunk_hash.as_deref() == Some(combined_hash.as_str()) {
+        log::info!(
+            "[embedding-sync] skip chunk embeddings for \"{}\" (hash unchanged)",
+            document.id
+        );
+        return Ok(());
+    }
 
     let mut chunk_payloads: Vec<CachedDocumentChunkEmbeddingPayload> =
         Vec::with_capacity(chunks.len());

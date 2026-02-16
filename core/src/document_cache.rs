@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Once;
 use std::time::Instant;
 
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -633,6 +633,27 @@ impl DocumentCacheStore {
 
         transaction.commit()?;
         Ok(())
+    }
+
+    pub fn get_document_chunk_embedding_content_hash(
+        &self,
+        document_id: &str,
+        model: &str,
+    ) -> Result<Option<String>, DocumentCacheError> {
+        let content_hash = self
+            .connection
+            .query_row(
+                "SELECT content_hash
+                 FROM document_chunk_embeddings_meta
+                 WHERE document_id = ?1 AND model = ?2
+                 ORDER BY id DESC
+                 LIMIT 1",
+                params![document_id, model],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        Ok(content_hash)
     }
 
     pub fn semantic_search_documents(

@@ -10,7 +10,6 @@ import {
   deleteDocumentEmbeddings,
   hybridSearchDocumentsByQuery,
   syncDocumentEmbeddings,
-  syncDocumentsEmbeddingsBatch,
 } from '@/lib/documents/embeddings-cache'
 import type {
   Document,
@@ -1002,15 +1001,6 @@ function scheduleDocumentEmbeddingSync(folder: string, document: EmbeddingSyncDo
   })
 }
 
-function scheduleBatchDocumentEmbeddingSync(
-  folder: string,
-  documents: EmbeddingSyncDocument[],
-): void {
-  void syncDocumentsEmbeddingsBatch(folder, documents).catch((error) => {
-    console.error('[embedding-sync] Failed to run batched embedding sync:', error)
-  })
-}
-
 function scheduleDocumentEmbeddingDelete(folder: string, documentId: string): void {
   void deleteDocumentEmbeddings(folder, documentId).catch((error) => {
     console.error(`[embedding-sync] Failed to delete embedding for "${documentId}":`, error)
@@ -1114,8 +1104,6 @@ export async function reindexDocuments(): Promise<DocumentListItem[]> {
     } catch (cacheError) {
       console.error('[reindexDocuments] Failed to replace cached documents:', cacheError)
     }
-
-    scheduleBatchDocumentEmbeddingSync(folder, sortedDocuments)
 
     return sortedDocuments
   } catch (error) {

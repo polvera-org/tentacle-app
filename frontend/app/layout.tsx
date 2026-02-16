@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth/auth-context";
 import { AppToaster } from "@/components/ui/app-toaster";
+import { EmbeddingModelStartupGate } from "@/components/providers/embedding-model-startup-gate";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -39,8 +40,10 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased bg-white text-gray-900 h-full">
         <AuthProvider>
-          {children}
-          <AppToaster />
+          <EmbeddingModelStartupGate>
+            {children}
+            <AppToaster />
+          </EmbeddingModelStartupGate>
         </AuthProvider>
       </body>
     </html>
