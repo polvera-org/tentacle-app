@@ -1,6 +1,7 @@
 export interface TransformersCustomCache {
   match: (request: RequestInfo | URL | string) => Promise<Response | undefined>
   put: (request: RequestInfo | URL | string, response: Response) => Promise<void>
+  delete: (request: RequestInfo | URL | string) => Promise<void>
 }
 
 interface TransformersCacheRecord {
@@ -135,6 +136,14 @@ export async function createTransformersIndexedDbCache(): Promise<TransformersCu
         const transaction = database.transaction(STORE_NAME, 'readwrite')
         const store = transaction.objectStore(STORE_NAME)
         await requestToPromise(store.put(record))
+        await transactionDoneToPromise(transaction)
+      },
+
+      async delete(request: RequestInfo | URL | string): Promise<void> {
+        const key = resolveCacheKey(request)
+        const transaction = database.transaction(STORE_NAME, 'readwrite')
+        const store = transaction.objectStore(STORE_NAME)
+        await requestToPromise(store.delete(key))
         await transactionDoneToPromise(transaction)
       },
     }

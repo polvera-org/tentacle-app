@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const CACHE_DB_FILE_NAME: &str = ".document-data.db";
-const EMBEDDING_VECTOR_DIMENSIONS: usize = 384;
+const EMBEDDING_VECTOR_DIMENSIONS: usize = 1024;
 
 static SQLITE_VEC_EXTENSION_INIT: Once = Once::new();
 
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_document_embeddings_meta_content_hash ON document
 CREATE INDEX IF NOT EXISTS idx_document_embeddings_meta_document_id ON document_embeddings_meta(document_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS document_embeddings_vec USING vec0(
-  embedding float[384]
+  embedding float[1024]
 );
 
 CREATE TRIGGER IF NOT EXISTS trg_document_embeddings_meta_delete_vec
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS document_chunk_embeddings_meta (
 
 CREATE INDEX IF NOT EXISTS idx_chunk_meta_doc_id ON document_chunk_embeddings_meta(document_id);
 
-CREATE VIRTUAL TABLE IF NOT EXISTS document_chunk_embeddings_vec USING vec0(embedding float[384]);
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunk_embeddings_vec USING vec0(embedding float[1024]);
 
 CREATE TRIGGER IF NOT EXISTS trg_chunk_meta_delete_vec
 AFTER DELETE ON document_chunk_embeddings_meta
@@ -707,19 +707,27 @@ impl DocumentCacheStore {
         let candidate_k = limit.saturating_mul(4).max(1);
 
         // BM25 leg
-        let bm25_hits = self.bm25_search_documents(
-            query_text,
-            candidate_k,
-            exclude_document_id.as_deref(),
-        )?;
+        let bm25_hits = if bm25_weight > 0.0 {
+            self.bm25_search_documents(
+                query_text,
+                candidate_k,
+                exclude_document_id.as_deref(),
+            )?
+        } else {
+            Vec::new()
+        };
 
         // Semantic/chunk KNN leg
-        let semantic_hits = self.chunk_knn_search(
-            &query_vector,
-            candidate_k,
-            min_score,
-            exclude_document_id.as_deref(),
-        )?;
+        let semantic_hits = if semantic_weight > 0.0 {
+            self.chunk_knn_search(
+                &query_vector,
+                candidate_k,
+                min_score,
+                exclude_document_id.as_deref(),
+            )?
+        } else {
+            Vec::new()
+        };
 
         // Collect all candidate document IDs
         let mut all_doc_ids: Vec<String> = Vec::new();
@@ -1105,6 +1113,44 @@ mod tests {
                 .expect("hybrid search should succeed");
 
             assert!(!hits.is_empty(), "expected at least one hybrid search hit");
+            assert_eq!(hits[0].document_id, document.id);
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn hybrid_search_supports_bm25_only_mode_when_semantic_weight_is_zero() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store = DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let document = CachedDocumentPayload {
+                id: "doc-bm25-only".to_string(),
+                user_id: "user-1".to_string(),
+                title: "OAuth Authentication Guide".to_string(),
+                body: "This note explains OAuth login best practices.".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:00Z".to_string(),
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+                tags: vec![],
+            };
+            store.upsert_document(&document).expect("upsert should succeed");
+
+            let hits = store
+                .hybrid_search_documents(
+                    vec![0.0; EMBEDDING_VECTOR_DIMENSIONS],
+                    "OAuth",
+                    5,
+                    0.0,
+                    None,
+                    0.0,
+                    1.0,
+                )
+                .expect("hybrid search should succeed in bm25-only mode");
+
+            assert!(!hits.is_empty(), "expected at least one BM25-only hybrid search hit");
             assert_eq!(hits[0].document_id, document.id);
         }
 

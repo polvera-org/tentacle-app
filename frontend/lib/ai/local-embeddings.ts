@@ -2,13 +2,17 @@
 
 import toast from 'react-hot-toast'
 import { createTransformersIndexedDbCache } from '@/lib/ai/transformers-idb-cache'
+import type { TransformersCustomCache } from '@/lib/ai/transformers-idb-cache'
 
-export const LOCAL_EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2'
+export const LOCAL_EMBEDDING_MODEL_ID = 'onnx-community/Qwen3-Embedding-0.6B-ONNX'
+export const LOCAL_EMBEDDING_DIMENSIONS = 1024
+
+const QUERY_EMBEDDING_INSTRUCTION = 'Given a user query, retrieve relevant notes and passages.'
 
 type FeatureExtractionPipeline = (
   input: string,
   options?: {
-    pooling?: 'mean'
+    pooling?: 'mean' | 'last_token'
     normalize?: boolean
   },
 ) => Promise<unknown>
@@ -33,6 +37,17 @@ interface TiptapTextNode {
   text?: unknown
   content?: unknown
 }
+
+interface TokenizerJsonModelLike {
+  type?: unknown
+  merges?: unknown
+}
+
+interface TokenizerJsonLike {
+  model?: unknown
+}
+
+const BPE_TOKENIZER_TYPE = 'BPE'
 
 function normalizeString(value: unknown): string {
   if (typeof value !== 'string') {
@@ -115,6 +130,215 @@ function normalizePipelineVectorResult(value: unknown): number[] {
   return normalizeFiniteNumberArray(listResult)
 }
 
+function normalizeBpeMergeEntry(entry: unknown): string | null {
+  if (typeof entry === 'string') {
+    const normalized = normalizeString(entry)
+    return normalized.length > 0 ? normalized : null
+  }
+
+  if (!Array.isArray(entry) || entry.length < 2) {
+    return null
+  }
+
+  const left = normalizeString(entry[0])
+  const right = normalizeString(entry[1])
+  if (left.length === 0 || right.length === 0) {
+    return null
+  }
+
+  return `${left} ${right}`
+}
+
+function normalizeTokenizerJsonForLegacyBpe(payload: unknown): { changed: boolean, value: unknown } {
+  if (!payload || typeof payload !== 'object') {
+    return { changed: false, value: payload }
+  }
+
+  const tokenizer = payload as TokenizerJsonLike
+  if (!tokenizer.model || typeof tokenizer.model !== 'object') {
+    return { changed: false, value: payload }
+  }
+
+  const model = tokenizer.model as TokenizerJsonModelLike
+  const modelType = normalizeString(model.type)
+  if (modelType !== BPE_TOKENIZER_TYPE || !Array.isArray(model.merges)) {
+    return { changed: false, value: payload }
+  }
+
+  let changed = false
+  const normalizedMerges: string[] = []
+  for (const entry of model.merges) {
+    const normalizedEntry = normalizeBpeMergeEntry(entry)
+    if (normalizedEntry === null) {
+      changed = true
+      continue
+    }
+
+    if (normalizedEntry !== entry) {
+      changed = true
+    }
+    normalizedMerges.push(normalizedEntry)
+  }
+
+  if (!changed) {
+    return { changed: false, value: payload }
+  }
+
+  return {
+    changed: true,
+    value: {
+      ...(payload as Record<string, unknown>),
+      model: {
+        ...model,
+        merges: normalizedMerges,
+      },
+    },
+  }
+}
+
+function shouldNormalizeQwenTokenizerResponse(url: string): boolean {
+  const normalizedUrl = url.toLowerCase()
+  return normalizedUrl.includes('qwen3-embedding-0.6b-onnx') && normalizedUrl.includes('tokenizer.json')
+}
+
+function buildLikelyTokenizerCacheKeys(): string[] {
+  const encodedModelId = encodeURIComponent(LOCAL_EMBEDDING_MODEL_ID)
+  return [
+    `https://huggingface.co/${LOCAL_EMBEDDING_MODEL_ID}/resolve/main/tokenizer.json`,
+    `https://huggingface.co/${LOCAL_EMBEDDING_MODEL_ID}/resolve/main/tokenizer.json?download=true`,
+    `https://huggingface.co/${encodedModelId}/resolve/main/tokenizer.json`,
+    `https://huggingface.co/${encodedModelId}/resolve/main/tokenizer.json?download=true`,
+  ]
+}
+
+interface ParsedTokenizerJsonResult {
+  payload: TokenizerJsonLike
+  body: string
+  hadNullBytes: boolean
+}
+
+function stripNullBytes(value: string): string {
+  return value.replace(/\u0000/g, '')
+}
+
+async function parseTokenizerJsonFromResponse(response: Response): Promise<ParsedTokenizerJsonResult | null> {
+  try {
+    const rawBody = await response.clone().text()
+    const sanitizedBody = stripNullBytes(rawBody)
+    const parsed: unknown = JSON.parse(sanitizedBody)
+    if (!parsed || typeof parsed !== 'object') {
+      return null
+    }
+
+    return {
+      payload: parsed as TokenizerJsonLike,
+      body: sanitizedBody,
+      hadNullBytes: sanitizedBody.length !== rawBody.length,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function hasValidTokenizerPayload(response: Response): Promise<boolean> {
+  return (await parseTokenizerJsonFromResponse(response)) !== null
+}
+
+async function maybeNormalizeTokenizerResponse(response: Response): Promise<Response> {
+  if (!response.ok) {
+    return response
+  }
+
+  const parsed = await parseTokenizerJsonFromResponse(response)
+  if (!parsed) {
+    return response
+  }
+
+  const normalized = normalizeTokenizerJsonForLegacyBpe(parsed.payload)
+  if (!normalized.changed && !parsed.hadNullBytes) {
+    return response
+  }
+
+  const headers = new Headers(response.headers)
+  headers.set('content-type', 'application/json')
+  return new Response(JSON.stringify(normalized.value), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+async function normalizeTokenizerFromCustomCache(cache: TransformersCustomCache): Promise<void> {
+  const cacheKeys = buildLikelyTokenizerCacheKeys()
+  for (const cacheKey of cacheKeys) {
+    const cachedResponse = await cache.match(cacheKey)
+    if (!cachedResponse) {
+      continue
+    }
+
+    const normalizedResponse = await maybeNormalizeTokenizerResponse(cachedResponse)
+    if (normalizedResponse === cachedResponse) {
+      if (!(await hasValidTokenizerPayload(cachedResponse))) {
+        await cache.delete(cacheKey)
+      }
+      continue
+    }
+
+    await cache.put(cacheKey, normalizedResponse)
+  }
+}
+
+function installQwenTokenizerCompatibilityFetch(): (() => void) | null {
+  if (typeof window === 'undefined' || typeof globalThis.fetch !== 'function') {
+    return null
+  }
+
+  const globalLike = globalThis as typeof globalThis & { fetch: typeof fetch }
+  const originalFetch = globalLike.fetch.bind(globalThis)
+  const patchedFetch: typeof fetch = async (input, init) => {
+    const response = await originalFetch(input, init)
+
+    const requestUrl = (() => {
+      if (typeof input === 'string') {
+        return input
+      }
+      if (input instanceof URL) {
+        return input.toString()
+      }
+      return input.url
+    })()
+
+    if (!response.ok || !shouldNormalizeQwenTokenizerResponse(requestUrl)) {
+      return response
+    }
+
+    const normalizedResponse = await maybeNormalizeTokenizerResponse(response)
+    if (await hasValidTokenizerPayload(normalizedResponse)) {
+      return normalizedResponse
+    }
+
+    const retryUrl = requestUrl.includes('?')
+      ? `${requestUrl}&refresh=${Date.now()}`
+      : `${requestUrl}?refresh=${Date.now()}`
+    const retriedResponse = await originalFetch(retryUrl, { cache: 'no-store' })
+    if (!retriedResponse.ok) {
+      return normalizedResponse
+    }
+
+    const normalizedRetriedResponse = await maybeNormalizeTokenizerResponse(retriedResponse)
+    if (await hasValidTokenizerPayload(normalizedRetriedResponse)) {
+      return normalizedRetriedResponse
+    }
+
+    throw new Error(`Failed to load a valid tokenizer payload for ${LOCAL_EMBEDDING_MODEL_ID}.`)
+  }
+
+  globalLike.fetch = patchedFetch
+  return () => {
+    globalLike.fetch = originalFetch
+  }
+}
+
 function handlePipelineProgress(event: unknown): void {
   if (!event || typeof event !== 'object') {
     return
@@ -148,13 +372,14 @@ async function getFeatureExtractionPipeline(): Promise<FeatureExtractionPipeline
     return pipelinePromise
   }
 
-  toast.loading('Loading local AI Model', {
+  toast.loading('Loading local AI model (first run may download ~470MB)', {
     id: MODEL_DOWNLOAD_TOAST_ID,
     duration: Infinity,
   })
 
   pipelinePromise = (async () => {
     const { pipeline, env } = await import('@xenova/transformers')
+    const restoreFetch = installQwenTokenizerCompatibilityFetch()
 
     const persistentCache = await createTransformersIndexedDbCache()
     env.allowLocalModels = false
@@ -164,12 +389,20 @@ async function getFeatureExtractionPipeline(): Promise<FeatureExtractionPipeline
     env.useCustomCache = persistentCache !== null
     env.customCache = persistentCache
 
-    const extractor = await pipeline('feature-extraction', LOCAL_EMBEDDING_MODEL_ID, {
-      progress_callback: handlePipelineProgress,
-    })
+    if (persistentCache) {
+      await normalizeTokenizerFromCustomCache(persistentCache)
+    }
 
-    pipelineInstance = extractor as FeatureExtractionPipeline
-    return pipelineInstance
+    try {
+      const extractor = await pipeline('feature-extraction', LOCAL_EMBEDDING_MODEL_ID, {
+        progress_callback: handlePipelineProgress,
+      })
+
+      pipelineInstance = extractor as FeatureExtractionPipeline
+      return pipelineInstance
+    } finally {
+      restoreFetch?.()
+    }
   })()
     .catch((error) => {
       toast.dismiss(MODEL_DOWNLOAD_TOAST_ID)
@@ -238,6 +471,14 @@ export function extractPlainTextFromTiptapBody(body: string): string {
 }
 
 export async function embedTextLocally(text: string): Promise<number[]> {
+  return await embedDocumentTextLocally(text)
+}
+
+function formatQueryForEmbedding(query: string): string {
+  return `Instruct: ${QUERY_EMBEDDING_INSTRUCTION}\nQuery: ${query}`
+}
+
+async function embedWithPipeline(text: string): Promise<number[]> {
   const normalizedText = normalizeString(text)
   if (normalizedText.length === 0) {
     return []
@@ -245,9 +486,31 @@ export async function embedTextLocally(text: string): Promise<number[]> {
 
   const extractor = await getFeatureExtractionPipeline()
   const result = await extractor(normalizedText, {
-    pooling: 'mean',
+    pooling: 'last_token',
     normalize: true,
   })
 
-  return normalizePipelineVectorResult(result)
+  const vector = normalizePipelineVectorResult(result)
+  if (vector.length !== LOCAL_EMBEDDING_DIMENSIONS) {
+    console.error(
+      `[local-embeddings] Unexpected embedding dimensions for "${LOCAL_EMBEDDING_MODEL_ID}". ` +
+      `Expected ${LOCAL_EMBEDDING_DIMENSIONS}, received ${vector.length}.`,
+    )
+    return []
+  }
+
+  return vector
+}
+
+export async function embedDocumentTextLocally(text: string): Promise<number[]> {
+  return await embedWithPipeline(text)
+}
+
+export async function embedQueryTextLocally(query: string): Promise<number[]> {
+  const normalizedQuery = normalizeString(query)
+  if (normalizedQuery.length === 0) {
+    return []
+  }
+
+  return await embedWithPipeline(formatQueryForEmbedding(normalizedQuery))
 }

@@ -14,8 +14,10 @@ import {
   upsertCachedDocumentEmbedding,
 } from '@/lib/documents/embeddings-cache'
 import {
+  LOCAL_EMBEDDING_DIMENSIONS,
   LOCAL_EMBEDDING_MODEL_ID,
-  embedTextLocally,
+  embedDocumentTextLocally,
+  embedQueryTextLocally,
   extractPlainTextFromTiptapBody,
 } from '@/lib/ai/local-embeddings'
 import type {
@@ -1083,7 +1085,7 @@ async function upsertLocalDocumentEmbedding(
     }
   }
 
-  const vector = await embedTextLocally(sourceText)
+  const vector = await embedDocumentTextLocally(sourceText)
   if (vector.length === 0) {
     return
   }
@@ -1118,7 +1120,7 @@ async function upsertLocalDocumentChunkEmbeddings(
   const chunkPayloads = []
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]
-    const vector = await embedTextLocally(chunk.text)
+    const vector = await embedDocumentTextLocally(chunk.text)
     if (vector.length === 0) {
       continue
     }
@@ -1236,18 +1238,27 @@ export async function semanticSearchDocuments(
 
   const { normalized, ftsQuery, semanticWeight, bm25Weight } = preprocessQuery(normalizedQuery)
 
-  const queryVector = await embedTextLocally(normalized)
-  if (queryVector.length === 0) {
-    return []
+  let queryVector: number[] = []
+  try {
+    queryVector = await embedQueryTextLocally(normalized)
+  } catch (error) {
+    console.error('[semanticSearchDocuments] Query embedding failed. Falling back to BM25-only search:', error)
+  }
+
+  const useBm25OnlyFallback = queryVector.length === 0
+  if (useBm25OnlyFallback) {
+    console.warn('[semanticSearchDocuments] Query embedding unavailable. Using BM25-only fallback.')
   }
 
   const normalizedOptions = options ?? {}
   const folder = await getConfiguredDocumentsFolder()
   return await hybridSearchCachedDocuments(folder, {
-    query_vector: queryVector,
+    query_vector: useBm25OnlyFallback
+      ? new Array<number>(LOCAL_EMBEDDING_DIMENSIONS).fill(0)
+      : queryVector,
     query_text: ftsQuery,
-    semantic_weight: semanticWeight,
-    bm25_weight: bm25Weight,
+    semantic_weight: useBm25OnlyFallback ? 0 : semanticWeight,
+    bm25_weight: useBm25OnlyFallback ? 1 : bm25Weight,
     limit: normalizedOptions.limit,
     min_score: normalizedOptions.min_score,
     exclude_document_id: normalizedOptions.exclude_document_id,
