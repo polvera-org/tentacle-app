@@ -6,7 +6,7 @@ import type { DocumentListItem } from '@/types/documents'
 
 interface DocumentCardProps {
   document: DocumentListItem
-  onOpen: (documentId: string) => void
+  onOpen: (documentId: string, folderPath: string) => void
   onMove: (document: DocumentListItem) => void
   onDelete: (document: DocumentListItem) => void
 }
@@ -81,7 +81,7 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
     >
       <button
         type="button"
-        onClick={() => onOpen(doc.id)}
+        onClick={() => onOpen(doc.id, doc.folder_path)}
         className="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
       >
         <span className="sr-only">Open note {doc.title || 'Untitled'}</span>
@@ -176,7 +176,7 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
               role="menuitem"
               onClick={() => {
                 setIsMenuOpen(false)
-                onOpen(doc.id)
+                onOpen(doc.id, doc.folder_path)
               }}
               className="flex h-9 w-full items-center rounded-lg px-3 text-sm text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
             >

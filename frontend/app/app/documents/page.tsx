@@ -66,10 +66,50 @@ function buildAutoTaggingText(title: string, serializedBody: string): string {
     .join('\n')
 }
 
+function normalizeFolderPath(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.trim().replace(/\\/g, '/')
+  if (normalized.length === 0 || normalized === '/' || normalized === '.') {
+    return ''
+  }
+
+  const segments: string[] = []
+  for (const segment of normalized.split('/')) {
+    const trimmedSegment = segment.trim()
+    if (trimmedSegment.length === 0 || trimmedSegment === '.') {
+      continue
+    }
+
+    if (trimmedSegment === '..') {
+      segments.pop()
+      continue
+    }
+
+    segments.push(trimmedSegment)
+  }
+
+  return segments.join('/')
+}
+
+function buildDashboardUrl(folderPath: string): string {
+  const normalizedFolderPath = normalizeFolderPath(folderPath)
+  if (normalizedFolderPath.length === 0) {
+    return '/app'
+  }
+
+  const query = new URLSearchParams({ folder: normalizedFolderPath })
+  return `/app?${query.toString()}`
+}
+
 function DocumentDetailContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const documentId = searchParams.get('id')
+  const currentFolderPath = normalizeFolderPath(searchParams.get('folder'))
+  const dashboardUrl = buildDashboardUrl(currentFolderPath)
 
   const [doc, setDoc] = useState<Document | null>(null)
   const [title, setTitle] = useState('')
@@ -109,7 +149,7 @@ function DocumentDetailContent() {
 
   useEffect(() => {
     if (!documentId) {
-      router.push('/app')
+      router.push(dashboardUrl)
       return
     }
 
@@ -138,14 +178,14 @@ function DocumentDetailContent() {
           }
         }
       } catch {
-        router.push('/app')
+        router.push(dashboardUrl)
       } finally {
         setIsLoading(false)
         setTimeout(() => { isInitialLoad.current = false }, 100)
       }
     }
     load()
-  }, [documentId, router])
+  }, [dashboardUrl, documentId, router])
 
   const debouncedTitle = useDebounce(title, 1000)
   const debouncedContent = useDebounce(content, 1000)
@@ -352,7 +392,7 @@ function DocumentDetailContent() {
     setIsDeleting(true)
     try {
       await deleteDocument(doc.id)
-      router.push('/app')
+      router.push(dashboardUrl)
     } catch {
       setIsDeleting(false)
     }
@@ -398,7 +438,7 @@ function DocumentDetailContent() {
       <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <button
-            onClick={() => router.push('/app')}
+            onClick={() => router.push(dashboardUrl)}
             className="h-10 px-4 text-sm font-medium text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
           >
             <span className="flex items-center gap-2">

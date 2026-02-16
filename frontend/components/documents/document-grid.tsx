@@ -86,6 +86,19 @@ function normalizeFolderPath(value: string | null | undefined): string {
   return segments.join('/')
 }
 
+function buildDocumentDetailUrl(documentId: string, folderPath: string): string {
+  const query = new URLSearchParams({
+    id: documentId,
+  })
+
+  const normalizedFolderPath = normalizeFolderPath(folderPath)
+  if (normalizedFolderPath.length > 0) {
+    query.set('folder', normalizedFolderPath)
+  }
+
+  return `/app/documents?${query.toString()}`
+}
+
 function fallbackSearchDocuments(query: string, documents: DocumentListItem[]): DocumentListItem[] {
   const normalizedQuery = query.trim().toLowerCase()
   if (normalizedQuery.length === 0) {
@@ -338,8 +351,8 @@ export function DocumentGrid({
     setCurrentFolderPath(normalizeFolderPath(folderPath))
   }, [])
 
-  const handleOpenDocument = useCallback((documentId: string) => {
-    router.push(`/app/documents?id=${documentId}`)
+  const handleOpenDocument = useCallback((documentId: string, folderPath: string) => {
+    router.push(buildDocumentDetailUrl(documentId, folderPath))
   }, [router])
 
   const visibleDocuments = useMemo(() => {
@@ -467,7 +480,7 @@ export function DocumentGrid({
         console.error('[DocumentGrid] Failed to refresh folders after note creation.', error)
       })
 
-      router.push(`/app/documents?id=${createdDocument.id}`)
+      router.push(buildDocumentDetailUrl(createdDocument.id, createdDocument.folder_path))
     } catch (error) {
       setErrorMessage(extractErrorMessage(error, 'Failed to create note. Please try again.'))
     }
