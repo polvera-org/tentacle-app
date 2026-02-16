@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import {
   fetchCachedDocuments,
   fetchCachedDocumentTags,
+  fetchDocumentFolders,
   reindexDocuments,
   semanticSearchDocuments,
   deleteGlobalTag,
@@ -11,11 +12,43 @@ import {
 import { extractPlainTextFromTiptapBody } from '@/lib/documents/text'
 import { DocumentCard } from './document-card'
 import { DocumentTagFilters } from './document-tag-filters'
+import { FolderBreadcrumbs } from './folder-breadcrumbs'
+import { FolderCard } from './folder-card'
 import { NewDocumentCard } from './new-document-card'
-import type { DocumentListItem, DocumentTagUsage } from '@/types/documents'
+import type { DocumentFolder, DocumentListItem, DocumentTagUsage } from '@/types/documents'
 
 interface DocumentGridProps {
   searchQuery: string
+  initialFolderPath?: string
+  onFolderPathChange?: (folderPath: string) => void
+}
+
+function normalizeFolderPath(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.trim().replace(/\\/g, '/')
+  if (normalized.length === 0 || normalized === '/' || normalized === '.') {
+    return ''
+  }
+
+  const segments: string[] = []
+  for (const segment of normalized.split('/')) {
+    const trimmedSegment = segment.trim()
+    if (trimmedSegment.length === 0 || trimmedSegment === '.') {
+      continue
+    }
+
+    if (trimmedSegment === '..') {
+      segments.pop()
+      continue
+    }
+
+    segments.push(trimmedSegment)
+  }
+
+  return segments.join('/')
 }
 
 function fallbackSearchDocuments(query: string, documents: DocumentListItem[]): DocumentListItem[] {
@@ -35,10 +68,16 @@ function fallbackSearchDocuments(query: string, documents: DocumentListItem[]): 
   })
 }
 
-export function DocumentGrid({ searchQuery }: DocumentGridProps) {
+export function DocumentGrid({
+  searchQuery,
+  initialFolderPath,
+  onFolderPathChange,
+}: DocumentGridProps) {
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
+  const [documentFolders, setDocumentFolders] = useState<DocumentFolder[]>([])
   const [documentTags, setDocumentTags] = useState<DocumentTagUsage[]>([])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [currentFolderPath, setCurrentFolderPath] = useState(() => normalizeFolderPath(initialFolderPath))
   const [searchRankedDocuments, setSearchRankedDocuments] = useState<DocumentListItem[] | null>(null)
   const [isInitialCacheLoading, setIsInitialCacheLoading] = useState(true)
   const [isSynchronizing, setIsSynchronizing] = useState(false)
@@ -51,6 +90,17 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
   useEffect(() => {
     documentsCountRef.current = documents.length
   }, [documents.length])
+
+  useEffect(() => {
+    const normalizedInitialPath = normalizeFolderPath(initialFolderPath)
+    setCurrentFolderPath((previousFolderPath) => {
+      return previousFolderPath === normalizedInitialPath ? previousFolderPath : normalizedInitialPath
+    })
+  }, [initialFolderPath])
+
+  useEffect(() => {
+    onFolderPathChange?.(currentFolderPath)
+  }, [currentFolderPath, onFolderPathChange])
 
   const applyDocumentTags = useCallback((tags: DocumentTagUsage[]) => {
     setDocumentTags(tags)
@@ -76,9 +126,39 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
     setSelectedTags([])
   }, [])
 
+  const handleOpenFolder = useCallback((folderPath: string) => {
+    setCurrentFolderPath(normalizeFolderPath(folderPath))
+  }, [])
+
+  const visibleDocuments = useMemo(() => {
+    return documents.filter((document) => normalizeFolderPath(document.folder_path) === currentFolderPath)
+  }, [currentFolderPath, documents])
+
+  const visibleDocumentTags = useMemo(() => {
+    if (visibleDocuments.length === 0) {
+      return []
+    }
+
+    const visibleTagSet = new Set<string>()
+    for (const document of visibleDocuments) {
+      for (const tag of document.tags) {
+        visibleTagSet.add(tag)
+      }
+    }
+
+    return documentTags.filter(({ tag }) => visibleTagSet.has(tag))
+  }, [documentTags, visibleDocuments])
+
+  const visibleChildFolders = useMemo(() => {
+    return documentFolders.filter((folder) => {
+      const parentPath = normalizeFolderPath(folder.parent_path)
+      return parentPath === currentFolderPath
+    })
+  }, [currentFolderPath, documentFolders])
+
   const filteredDocuments = useMemo(() => {
     const searchableDocuments = normalizedSearchQuery.length === 0
-      ? documents
+      ? visibleDocuments
       : (searchRankedDocuments ?? [])
 
     if (selectedTags.length === 0) {
@@ -87,7 +167,7 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
 
     const selectedTagSet = new Set(selectedTags)
     return searchableDocuments.filter((document) => document.tags.some((tag) => selectedTagSet.has(tag)))
-  }, [documents, normalizedSearchQuery, searchRankedDocuments, selectedTags])
+  }, [normalizedSearchQuery, searchRankedDocuments, selectedTags, visibleDocuments])
 
   const loadDocuments = useCallback(async () => {
     const requestId = requestIdRef.current + 1
@@ -98,9 +178,10 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
     }
 
     try {
-      const [cachedDocuments, cachedDocumentTags] = await Promise.all([
+      const [cachedDocuments, cachedDocumentTags, cachedFolders] = await Promise.all([
         fetchCachedDocuments(),
         fetchCachedDocumentTags(),
+        fetchDocumentFolders(),
       ])
 
       if (requestId !== requestIdRef.current) {
@@ -108,6 +189,7 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
       }
 
       setDocuments(cachedDocuments)
+      setDocumentFolders(cachedFolders)
       applyDocumentTags(cachedDocumentTags)
     } catch (error) {
       console.error(error)
@@ -132,11 +214,15 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
 
       setDocuments(indexedDocuments)
 
-      const refreshedDocumentTags = await fetchCachedDocumentTags()
+      const [refreshedDocumentTags, refreshedFolders] = await Promise.all([
+        fetchCachedDocumentTags(),
+        fetchDocumentFolders(),
+      ])
       if (requestId !== requestIdRef.current) {
         return
       }
 
+      setDocumentFolders(refreshedFolders)
       applyDocumentTags(refreshedDocumentTags)
     } catch (error) {
       console.error(error)
@@ -157,6 +243,22 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
   }, [loadDocuments])
 
   useEffect(() => {
+    if (isInitialCacheLoading) {
+      return
+    }
+
+    if (currentFolderPath.length === 0) {
+      return
+    }
+
+    const folderExists = documentFolders.some((folder) => folder.path === currentFolderPath)
+    const folderHasDocuments = documents.some((document) => document.folder_path === currentFolderPath)
+    if (!folderExists && !folderHasDocuments) {
+      setCurrentFolderPath('')
+    }
+  }, [currentFolderPath, documentFolders, documents, isInitialCacheLoading])
+
+  useEffect(() => {
     const currentRequestId = searchRequestIdRef.current + 1
     searchRequestIdRef.current = currentRequestId
 
@@ -165,6 +267,8 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
       return
     }
 
+    setSearchRankedDocuments(null)
+
     void (async () => {
       try {
         const hits = await semanticSearchDocuments(normalizedSearchQuery)
@@ -172,7 +276,7 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
           return
         }
 
-        const documentLookup = new Map(documents.map((document) => [document.id, document]))
+        const documentLookup = new Map(visibleDocuments.map((document) => [document.id, document]))
         const rankedDocuments: DocumentListItem[] = []
         for (const hit of hits) {
           const matchedDocument = documentLookup.get(hit.document_id)
@@ -188,10 +292,10 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
           return
         }
 
-        setSearchRankedDocuments(fallbackSearchDocuments(normalizedSearchQuery, documents))
+        setSearchRankedDocuments(fallbackSearchDocuments(normalizedSearchQuery, visibleDocuments))
       }
     })()
-  }, [documents, normalizedSearchQuery])
+  }, [normalizedSearchQuery, visibleDocuments])
 
   useEffect(() => {
     const handleDocumentsFolderChanged = () => {
@@ -211,9 +315,9 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
 
   if (isInitialCacheLoading && documents.length === 0) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-48 bg-gray-100 rounded-2xl animate-pulse" />
+          <div key={i} className="h-48 animate-pulse rounded-2xl bg-gray-100" />
         ))}
       </div>
     )
@@ -226,14 +330,29 @@ export function DocumentGrid({ searchQuery }: DocumentGridProps) {
           Synchronizing...
         </p>
       ) : null}
+      <FolderBreadcrumbs
+        currentFolderPath={currentFolderPath}
+        onNavigate={handleOpenFolder}
+      />
+      {visibleChildFolders.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+          {visibleChildFolders.map((folder) => (
+            <FolderCard
+              key={folder.path || 'root'}
+              folder={folder}
+              onOpen={handleOpenFolder}
+            />
+          ))}
+        </div>
+      ) : null}
       <DocumentTagFilters
-        tags={documentTags}
+        tags={visibleDocumentTags}
         selectedTags={selectedTags}
         onToggleTag={handleToggleTag}
         onClearTags={handleClearTags}
         onDeleteTag={handleDeleteTag}
       />
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         <NewDocumentCard />
         {filteredDocuments.map((doc) => (
           <DocumentCard key={doc.id} document={doc} />

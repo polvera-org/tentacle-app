@@ -1,14 +1,72 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { DocumentGrid } from '@/components/documents/document-grid'
 import { SettingsModal } from '@/components/settings/settings-modal'
 import { useDebounce } from '@/hooks/use-debounce'
 
+function normalizeFolderPath(value: string | null | undefined): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.trim().replace(/\\/g, '/')
+  if (normalized.length === 0 || normalized === '/' || normalized === '.') {
+    return ''
+  }
+
+  const segments: string[] = []
+  for (const segment of normalized.split('/')) {
+    const trimmedSegment = segment.trim()
+    if (trimmedSegment.length === 0 || trimmedSegment === '.') {
+      continue
+    }
+
+    if (trimmedSegment === '..') {
+      segments.pop()
+      continue
+    }
+
+    segments.push(trimmedSegment)
+  }
+
+  return segments.join('/')
+}
+
 export default function DashboardPage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const debouncedSearchQuery = useDebounce(searchQuery, 400)
+
+  const currentFolderPath = useMemo(
+    () => normalizeFolderPath(searchParams.get('folder')),
+    [searchParams],
+  )
+
+  const handleFolderPathChange = useCallback((nextFolderPath: string) => {
+    const normalizedNextPath = normalizeFolderPath(nextFolderPath)
+    const normalizedCurrentPath = normalizeFolderPath(searchParams.get('folder'))
+
+    if (normalizedCurrentPath === normalizedNextPath) {
+      return
+    }
+
+    const nextParams = new URLSearchParams(searchParams.toString())
+    if (normalizedNextPath.length === 0) {
+      nextParams.delete('folder')
+    } else {
+      nextParams.set('folder', normalizedNextPath)
+    }
+
+    const queryString = nextParams.toString()
+    const nextUrl = queryString.length > 0 ? `${pathname}?${queryString}` : pathname
+    router.replace(nextUrl)
+  }, [pathname, router, searchParams])
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -57,7 +115,11 @@ export default function DashboardPage() {
               className="w-full h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             />
           </div>
-          <DocumentGrid searchQuery={debouncedSearchQuery} />
+          <DocumentGrid
+            searchQuery={debouncedSearchQuery}
+            initialFolderPath={currentFolderPath}
+            onFolderPathChange={handleFolderPathChange}
+          />
         </div>
       </main>
     </div>
