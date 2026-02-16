@@ -12,13 +12,11 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     resolveAlias: {
-      // @xenova/transformers imports Node modules in browser builds.
-      // Keep `path`/`url` functional via browser polyfills and stub truly server-only modules.
+      // Keep `path`/`url` functional via browser polyfills and stub server-only modules.
       fs: './lib/shims/empty-object.ts',
       path: browserPathPolyfill,
       url: browserUrlPolyfill,
       sharp: './lib/shims/empty-object.ts',
-      'onnxruntime-node': './lib/shims/empty-object.ts',
     },
   },
   webpack: (config, { isServer }) => {
@@ -30,7 +28,6 @@ const nextConfig: NextConfig = {
         path: browserPathPolyfill,
         url: browserUrlPolyfill,
         sharp: browserNodeShim,
-        'onnxruntime-node': browserNodeShim,
       })
     }
 

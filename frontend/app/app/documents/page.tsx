@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { suggestTagsWithOpenAI } from '@/lib/ai/auto-tagging'
-import { extractPlainTextFromTiptapBody } from '@/lib/ai/local-embeddings'
+import { extractPlainTextFromTiptapBody } from '@/lib/documents/text'
 import { fetchCachedDocuments, fetchDocument, semanticSearchDocuments, updateDocument, deleteDocument } from '@/lib/documents/api'
 import { useDebounce } from '@/hooks/use-debounce'
 import { DocumentEditor } from '@/components/documents/document-editor'

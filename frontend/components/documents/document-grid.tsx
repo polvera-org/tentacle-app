@@ -8,7 +8,7 @@ import {
   semanticSearchDocuments,
   deleteGlobalTag,
 } from '@/lib/documents/api'
-import { extractPlainTextFromTiptapBody } from '@/lib/ai/local-embeddings'
+import { extractPlainTextFromTiptapBody } from '@/lib/documents/text'
 import { DocumentCard } from './document-card'
 import { DocumentTagFilters } from './document-tag-filters'
 import { NewDocumentCard } from './new-document-card'

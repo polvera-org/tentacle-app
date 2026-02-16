@@ -55,9 +55,7 @@ impl ConfigStore {
     }
 
     pub fn get_all(&self) -> Result<HashMap<String, String>, ConfigError> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT key, value FROM config")?;
+        let mut statement = self.connection.prepare("SELECT key, value FROM config")?;
         let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
 
         let mut config = HashMap::new();

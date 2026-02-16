@@ -1,12 +1,89 @@
 use std::path::Path;
-use std::sync::Mutex;
-use tauri::Manager;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, Manager};
 use tentacle_core::config::ConfigStore;
 use tentacle_core::document_cache::{
     CachedDocumentChunkEmbeddingPayload, CachedDocumentEmbeddingMetadataPayload,
     CachedDocumentEmbeddingPayload, CachedDocumentPayload, CachedDocumentTagPayload,
     DocumentCacheStore, HybridSearchHitPayload, SemanticSearchHitPayload,
 };
+use tentacle_core::embeddings::{
+    delete_document_embeddings as delete_document_embeddings_in_core,
+    hybrid_search_documents_by_query as hybrid_search_documents_by_query_in_core,
+    preload_embedding_model as preload_embedding_model_in_core,
+    sync_document_embeddings as sync_document_embeddings_in_core,
+    sync_documents_embeddings_batch as sync_documents_embeddings_batch_in_core,
+    EmbeddingBatchSyncResultPayload, EmbeddingModelLoadStatePayload, EmbeddingSyncDocumentPayload,
+};
+
+const EMBEDDING_MODEL_LOAD_EVENT: &str = "embedding-model-load-state";
+
+#[derive(Clone)]
+struct EmbeddingRuntimeState {
+    load_state: Arc<Mutex<EmbeddingModelLoadStatePayload>>,
+    preload_inflight: Arc<AtomicBool>,
+}
+
+impl EmbeddingRuntimeState {
+    fn new() -> Self {
+        Self {
+            load_state: Arc::new(Mutex::new(EmbeddingModelLoadStatePayload::default())),
+            preload_inflight: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn snapshot(&self) -> Result<EmbeddingModelLoadStatePayload, String> {
+        let state = self.load_state.lock().map_err(|err| err.to_string())?;
+        Ok(state.clone())
+    }
+
+    fn set_load_state(&self, next_state: EmbeddingModelLoadStatePayload) -> Result<(), String> {
+        let mut state = self.load_state.lock().map_err(|err| err.to_string())?;
+        *state = next_state;
+        Ok(())
+    }
+}
+
+fn emit_embedding_model_load_state(
+    app_handle: &tauri::AppHandle,
+    state: &EmbeddingModelLoadStatePayload,
+) {
+    if let Err(error) = app_handle.emit(EMBEDDING_MODEL_LOAD_EVENT, state) {
+        log::debug!(
+            "[embeddings][startup] failed to emit {} event: {}",
+            EMBEDDING_MODEL_LOAD_EVENT,
+            error
+        );
+    }
+}
+
+fn spawn_embedding_model_preload(app_handle: tauri::AppHandle, runtime: EmbeddingRuntimeState) {
+    if runtime.preload_inflight.swap(true, Ordering::SeqCst) {
+        log::debug!("[embeddings][startup] preload already running; skipping duplicate request");
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let runtime_for_progress = runtime.clone();
+        let app_handle_for_progress = app_handle.clone();
+        let preload_result = preload_embedding_model_in_core(|next_state| {
+            if let Err(error) = runtime_for_progress.set_load_state(next_state.clone()) {
+                log::error!(
+                    "[embeddings][startup] failed to update in-memory model load state: {}",
+                    error
+                );
+            }
+            emit_embedding_model_load_state(&app_handle_for_progress, &next_state);
+        });
+
+        if let Err(error) = preload_result {
+            log::error!("[embeddings][startup] preload failed: {}", error);
+        }
+
+        runtime.preload_inflight.store(false, Ordering::SeqCst);
+    });
+}
 
 #[tauri::command]
 fn get_config(
@@ -185,6 +262,75 @@ fn replace_cached_document_chunk_embeddings(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn sync_document_embeddings(
+    documents_folder: String,
+    document: EmbeddingSyncDocumentPayload,
+) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    sync_document_embeddings_in_core(&mut store, &document, None).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn sync_documents_embeddings_batch(
+    documents_folder: String,
+    documents: Vec<EmbeddingSyncDocumentPayload>,
+) -> Result<EmbeddingBatchSyncResultPayload, String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    sync_documents_embeddings_batch_in_core(&mut store, &documents).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn delete_document_embeddings(documents_folder: String, document_id: String) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    delete_document_embeddings_in_core(&mut store, &document_id).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn hybrid_search_documents_by_query(
+    documents_folder: String,
+    query_text: String,
+    semantic_query_text: Option<String>,
+    semantic_weight: f32,
+    bm25_weight: f32,
+    limit: usize,
+    min_score: f32,
+    exclude_document_id: Option<String>,
+) -> Result<Vec<HybridSearchHitPayload>, String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    hybrid_search_documents_by_query_in_core(
+        &store,
+        &query_text,
+        semantic_query_text.as_deref(),
+        limit,
+        min_score,
+        exclude_document_id,
+        semantic_weight,
+        bm25_weight,
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn get_embedding_model_load_state(
+    runtime: tauri::State<'_, EmbeddingRuntimeState>,
+) -> Result<EmbeddingModelLoadStatePayload, String> {
+    runtime.snapshot()
+}
+
+#[tauri::command]
+fn preload_embedding_model(
+    app_handle: tauri::AppHandle,
+    runtime: tauri::State<'_, EmbeddingRuntimeState>,
+) -> Result<(), String> {
+    spawn_embedding_model_preload(app_handle, runtime.inner().clone());
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -203,7 +349,13 @@ pub fn run() {
             replace_cached_document_embeddings,
             semantic_search_cached_documents,
             hybrid_search_cached_documents,
-            replace_cached_document_chunk_embeddings
+            replace_cached_document_chunk_embeddings,
+            sync_document_embeddings,
+            sync_documents_embeddings_batch,
+            delete_document_embeddings,
+            hybrid_search_documents_by_query,
+            get_embedding_model_load_state,
+            preload_embedding_model
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -214,6 +366,8 @@ pub fn run() {
             });
             let store = ConfigStore::new(&data_dir).expect("failed to init config");
             app.manage(Mutex::new(store));
+            let embedding_runtime = EmbeddingRuntimeState::new();
+            app.manage(embedding_runtime.clone());
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -222,6 +376,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            spawn_embedding_model_preload(app.handle().clone(), embedding_runtime);
             Ok(())
         })
         .run(tauri::generate_context!())
