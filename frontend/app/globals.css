@@ -42,6 +42,17 @@
 }
 
 @theme inline {
+  --color-brand-50: #f1f0fb;
+  --color-brand-100: #e1defa;
+  --color-brand-200: #c8c2f5;
+  --color-brand-300: #a79cec;
+  --color-brand-400: #8778e1;
+  --color-brand-500: #7060d5;
+  --color-brand-600: #6153cc;
+  --color-brand-700: #4d42a8;
+  --color-brand-800: #3b337f;
+  --color-brand-900: #2d2760;
+  --color-brand-950: #1e1a40;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);

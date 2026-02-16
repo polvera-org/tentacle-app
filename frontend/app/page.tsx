@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { motion } from "framer-motion";
+import Image from "next/image";
 import Link from "next/link";
 import { Shield, Download, ArrowRight, Check, Brain, Search, Mic, Sparkles, PenLine, Cloud, Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -116,8 +117,15 @@ export default function LandingPage() {
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
-                <Brain className="h-4 w-4" />
+              <div className="relative h-8 w-8 shrink-0">
+                <Image
+                  src="/tentacle-spiral.png"
+                  alt="Tentacle logo"
+                  fill
+                  sizes="32px"
+                  className="object-contain"
+                  priority
+                />
               </div>
               <span className="text-lg font-bold text-zinc-900">Tentacle</span>
             </Link>
@@ -176,7 +184,7 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.18 }}
-            className="mx-auto mt-5 max-w-md text-base text-zinc-500"
+            className="mx-auto mt-12 max-w-md text-base text-zinc-500 sm:mt-5"
           >
             Capture ideas with voice, find anything with semantic search, and let AI organize your thoughts — all on your device.
           </motion.p>
@@ -556,8 +564,14 @@ export default function LandingPage() {
       <footer className="border-t border-zinc-200 bg-white py-8">
         <div className="container mx-auto px-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-indigo-600 text-white">
-              <Brain className="h-3.5 w-3.5" />
+            <div className="relative h-6 w-6 shrink-0">
+              <Image
+                src="/tentacle-spiral.png"
+                alt="Tentacle logo"
+                fill
+                sizes="24px"
+                className="object-contain"
+              />
             </div>
             <span className="text-sm font-semibold text-zinc-900">Tentacle</span>
           </div>
