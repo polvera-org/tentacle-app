@@ -5,7 +5,7 @@ This file maps Tauri commands to their core behavior so future CLI and desktop w
 Source files:
 
 - Tauri command handlers: `frontend/src-tauri/src/lib.rs`
-- Core logic: `core/src/config.rs`, `core/src/document_cache.rs`, `core/src/embeddings.rs`
+- Core logic: `core/src/config.rs`, `core/src/document_cache.rs`, `core/src/document_folders.rs`, `core/src/embeddings.rs`
 
 ## 1. Config Commands
 
@@ -55,7 +55,17 @@ Notes:
 - Core embedding inference is ONNX-based (`Qwen3-Embedding-0.6B-ONNX`) and executed fully in Rust.
 - These high-level commands are the preferred surface for both desktop and future CLI behavior.
 
-## 5. Guidance
+## 5. Document Folder Commands
+
+| Tauri command | Core call |
+| --- | --- |
+| `list_document_folders` | `tentacle_core::document_folders::DocumentFoldersService::list_folders` |
+| `create_document_folder` | `tentacle_core::document_folders::DocumentFoldersService::create_folder` |
+| `rename_document_folder` | `tentacle_core::document_folders::DocumentFoldersService::rename_folder` |
+| `delete_document_folder` | `tentacle_core::document_folders::DocumentFoldersService::delete_folder` |
+| `move_document_to_folder` | `tentacle_core::document_folders::DocumentFoldersService::move_document_to_folder` |
+
+## 6. Guidance
 
 For CLI implementation:
 
