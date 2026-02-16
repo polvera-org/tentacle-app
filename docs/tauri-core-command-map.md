@@ -50,6 +50,11 @@ These are the commands the frontend now uses for the migrated core-owned flow:
 | `delete_document_embeddings` | `embeddings::delete_document_embeddings` |
 | `hybrid_search_documents_by_query` | `embeddings::hybrid_search_documents_by_query` |
 
+Notes:
+
+- Core embedding inference is ONNX-based (`Qwen3-Embedding-0.6B-ONNX`) and executed fully in Rust.
+- These high-level commands are the preferred surface for both desktop and future CLI behavior.
+
 ## 5. Guidance
 
 For CLI implementation:

@@ -20,6 +20,7 @@ This directory is the implementation-focused documentation for future coding age
 As of February 16, 2026:
 
 - `core` is the single owner of embedding sync + hybrid search orchestration.
+- Core embedding runtime is ONNX/Qwen (`onnx-community/Qwen3-Embedding-0.6B-ONNX`).
 - Frontend no longer uses `@xenova/transformers`.
 - Tauri calls into core for embedding lifecycle and query-based hybrid search.
 - A dedicated `cli/` crate is not created yet in this workspace.

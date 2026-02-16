@@ -63,18 +63,30 @@ How it behaves:
 5. For query search, compute query embedding and call cache hybrid search.
 6. If query embedding fails, fallback to BM25-only mode.
 
-## 5. Important Current Implementation Note
+## 5. Embedding Runtime (Current)
 
-`core/src/embeddings.rs` currently uses a deterministic hash-based vectorizer with model id:
+`core/src/embeddings.rs` now uses ONNX Runtime + Hugging Face tokenizer in Rust core.
 
-- `tentacle-core/hash-embedding-v1`
+Current model id:
 
-This was introduced to move ownership into core immediately without frontend model/runtime dependency.
+- `onnx-community/Qwen3-Embedding-0.6B-ONNX`
 
-Planned replacement:
+Runtime behavior:
 
-- ONNX Runtime + tokenizer-based `qwen3-embedding` inference in core.
-- Keep public core function signatures stable so CLI/Tauri call sites do not churn.
+1. Resolve tokenizer + ONNX artifacts via `hf-hub`.
+2. Initialize a lazy singleton embedding engine in core (tokenizer + ORT session).
+3. Encode text with tokenizer in Rust.
+4. Run ONNX inference in Rust.
+5. Apply last-token pooling and L2 normalization.
+6. Enforce 1024-dimensional vectors for cache compatibility.
+
+This means desktop app and future CLI use the exact same embedding implementation.
+
+Operational notes:
+
+- First run may download model artifacts to local HF cache.
+- If query embedding fails at runtime, hybrid search falls back to BM25-only mode.
+- Content hashes include the model id, so model changes naturally invalidate old embeddings.
 
 ## 6. Search Semantics
 
