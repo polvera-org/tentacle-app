@@ -8,6 +8,10 @@ use tentacle_core::document_cache::{
     CachedDocumentEmbeddingPayload, CachedDocumentPayload, CachedDocumentTagPayload,
     DocumentCacheStore, HybridSearchHitPayload, SemanticSearchHitPayload,
 };
+use tentacle_core::document_folders::{
+    DeleteDocumentFolderInputPayload, DocumentFolderPayload, DocumentFoldersService,
+    MoveDocumentResultPayload, RenameDocumentFolderInputPayload,
+};
 use tentacle_core::embeddings::{
     delete_document_embeddings as delete_document_embeddings_in_core,
     hybrid_search_documents_by_query as hybrid_search_documents_by_query_in_core,
@@ -316,6 +320,66 @@ fn hybrid_search_documents_by_query(
 }
 
 #[tauri::command]
+fn list_document_folders(documents_folder: String) -> Result<Vec<DocumentFolderPayload>, String> {
+    DocumentFoldersService::list_folders(Path::new(&documents_folder)).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn create_document_folder(
+    documents_folder: String,
+    folder_path: String,
+) -> Result<DocumentFolderPayload, String> {
+    DocumentFoldersService::create_folder(Path::new(&documents_folder), &folder_path)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn rename_document_folder(
+    documents_folder: String,
+    folder_path: String,
+    new_name: String,
+) -> Result<DocumentFolderPayload, String> {
+    DocumentFoldersService::rename_folder(
+        Path::new(&documents_folder),
+        &RenameDocumentFolderInputPayload {
+            path: folder_path,
+            name: new_name,
+        },
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn delete_document_folder(
+    documents_folder: String,
+    folder_path: String,
+    recursive: bool,
+) -> Result<(), String> {
+    DocumentFoldersService::delete_folder(
+        Path::new(&documents_folder),
+        &DeleteDocumentFolderInputPayload {
+            path: folder_path,
+            recursive,
+        },
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn move_document_to_folder(
+    documents_folder: String,
+    document_id: String,
+    target_folder_path: String,
+) -> Result<MoveDocumentResultPayload, String> {
+    DocumentFoldersService::move_document_to_folder(
+        Path::new(&documents_folder),
+        &document_id,
+        &target_folder_path,
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn get_embedding_model_load_state(
     runtime: tauri::State<'_, EmbeddingRuntimeState>,
 ) -> Result<EmbeddingModelLoadStatePayload, String> {
@@ -354,6 +418,11 @@ pub fn run() {
             sync_documents_embeddings_batch,
             delete_document_embeddings,
             hybrid_search_documents_by_query,
+            list_document_folders,
+            create_document_folder,
+            rename_document_folder,
+            delete_document_folder,
+            move_document_to_folder,
             get_embedding_model_load_state,
             preload_embedding_model
         ])
