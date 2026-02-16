@@ -7,6 +7,13 @@ use tentacle_core::document_cache::{
     CachedDocumentEmbeddingPayload, CachedDocumentPayload, CachedDocumentTagPayload,
     DocumentCacheStore, HybridSearchHitPayload, SemanticSearchHitPayload,
 };
+use tentacle_core::embeddings::{
+    delete_document_embeddings as delete_document_embeddings_in_core,
+    hybrid_search_documents_by_query as hybrid_search_documents_by_query_in_core,
+    sync_document_embeddings as sync_document_embeddings_in_core,
+    sync_documents_embeddings_batch as sync_documents_embeddings_batch_in_core,
+    EmbeddingBatchSyncResultPayload, EmbeddingSyncDocumentPayload,
+};
 
 #[tauri::command]
 fn get_config(
@@ -185,6 +192,57 @@ fn replace_cached_document_chunk_embeddings(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn sync_document_embeddings(
+    documents_folder: String,
+    document: EmbeddingSyncDocumentPayload,
+) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    sync_document_embeddings_in_core(&mut store, &document, None).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn sync_documents_embeddings_batch(
+    documents_folder: String,
+    documents: Vec<EmbeddingSyncDocumentPayload>,
+) -> Result<EmbeddingBatchSyncResultPayload, String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    sync_documents_embeddings_batch_in_core(&mut store, &documents).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn delete_document_embeddings(documents_folder: String, document_id: String) -> Result<(), String> {
+    let mut store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    delete_document_embeddings_in_core(&mut store, &document_id).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn hybrid_search_documents_by_query(
+    documents_folder: String,
+    query_text: String,
+    semantic_weight: f32,
+    bm25_weight: f32,
+    limit: usize,
+    min_score: f32,
+    exclude_document_id: Option<String>,
+) -> Result<Vec<HybridSearchHitPayload>, String> {
+    let store =
+        DocumentCacheStore::new(Path::new(&documents_folder)).map_err(|err| err.to_string())?;
+    hybrid_search_documents_by_query_in_core(
+        &store,
+        &query_text,
+        limit,
+        min_score,
+        exclude_document_id,
+        semantic_weight,
+        bm25_weight,
+    )
+    .map_err(|err| err.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -203,7 +261,11 @@ pub fn run() {
             replace_cached_document_embeddings,
             semantic_search_cached_documents,
             hybrid_search_cached_documents,
-            replace_cached_document_chunk_embeddings
+            replace_cached_document_chunk_embeddings,
+            sync_document_embeddings,
+            sync_documents_embeddings_batch,
+            delete_document_embeddings,
+            hybrid_search_documents_by_query
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

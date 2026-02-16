@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const CACHE_DB_FILE_NAME: &str = ".document-data.db";
-const EMBEDDING_VECTOR_DIMENSIONS: usize = 1024;
+pub const EMBEDDING_VECTOR_DIMENSIONS: usize = 1024;
 
 static SQLITE_VEC_EXTENSION_INIT: Once = Once::new();
 
@@ -221,11 +221,9 @@ impl DocumentCacheStore {
     /// may already have rows. In that case, and whenever an integrity check fails, we
     /// rebuild the index from the content table using the FTS5 `'rebuild'` command.
     fn rebuild_fts_index_if_empty(&self) -> Result<(), DocumentCacheError> {
-        let doc_count: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM documents",
-            [],
-            |row| row.get(0),
-        )?;
+        let doc_count: i64 =
+            self.connection
+                .query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
 
         if doc_count == 0 {
             return Ok(());
@@ -234,17 +232,17 @@ impl DocumentCacheStore {
         // `documents_fts_data` is the FTS5 B-tree data shadow table. It always has at
         // least 1 row (the averages block at id=1). Additional rows mean the index has
         // been populated. If it is ≤ 1 the index has never been built (migration path).
-        let fts_data_count: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM documents_fts_data",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let fts_data_count: i64 = self
+            .connection
+            .query_row("SELECT COUNT(*) FROM documents_fts_data", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
 
         if fts_data_count <= 1 {
             // Index has never been built — rebuild from content table.
-            self.connection.execute_batch(
-                "INSERT INTO documents_fts(documents_fts) VALUES('rebuild')",
-            )?;
+            self.connection
+                .execute_batch("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')")?;
             return Ok(());
         }
 
@@ -252,13 +250,15 @@ impl DocumentCacheStore {
         // This recovers databases that were corrupted by a previous bad migration.
         let integrity_ok = self
             .connection
-            .execute("INSERT INTO documents_fts(documents_fts) VALUES('integrity-check')", [])
+            .execute(
+                "INSERT INTO documents_fts(documents_fts) VALUES('integrity-check')",
+                [],
+            )
             .is_ok();
 
         if !integrity_ok {
-            self.connection.execute_batch(
-                "INSERT INTO documents_fts(documents_fts) VALUES('rebuild')",
-            )?;
+            self.connection
+                .execute_batch("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')")?;
         }
 
         Ok(())
@@ -501,9 +501,8 @@ impl DocumentCacheStore {
         )?;
 
         for chunk in chunks {
-            let chunk_index = i64::try_from(chunk.chunk_index).map_err(|_| {
-                DocumentCacheError::Validation("chunk_index is too large".into())
-            })?;
+            let chunk_index = i64::try_from(chunk.chunk_index)
+                .map_err(|_| DocumentCacheError::Validation("chunk_index is too large".into()))?;
             transaction.execute(
                 "INSERT INTO document_chunk_embeddings_meta
                    (document_id, chunk_index, chunk_text, content_hash, model, updated_at)
@@ -614,10 +613,9 @@ impl DocumentCacheStore {
              LIMIT ?3",
         )?;
 
-        let rows = statement.query_map(
-            params![fts_query, exclude_document_id, k],
-            |row| row.get::<_, String>(0),
-        )?;
+        let rows = statement.query_map(params![fts_query, exclude_document_id, k], |row| {
+            row.get::<_, String>(0)
+        })?;
 
         let mut hits = Vec::new();
         for row in rows {
@@ -708,11 +706,7 @@ impl DocumentCacheStore {
 
         // BM25 leg
         let bm25_hits = if bm25_weight > 0.0 {
-            self.bm25_search_documents(
-                query_text,
-                candidate_k,
-                exclude_document_id.as_deref(),
-            )?
+            self.bm25_search_documents(query_text, candidate_k, exclude_document_id.as_deref())?
         } else {
             Vec::new()
         };
@@ -1009,7 +1003,8 @@ mod tests {
         let temp_dir = unique_temp_path();
 
         {
-            let mut store = DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
 
             let document = CachedDocumentPayload {
                 id: "doc-1".to_string(),
@@ -1056,12 +1051,7 @@ mod tests {
             assert_eq!(metadata[0].content_hash, "updated-hash");
 
             let hits = store
-                .semantic_search_documents(
-                    vec![1.0; EMBEDDING_VECTOR_DIMENSIONS],
-                    1,
-                    0.0,
-                    None,
-                )
+                .semantic_search_documents(vec![1.0; EMBEDDING_VECTOR_DIMENSIONS], 1, 0.0, None)
                 .expect("semantic search should succeed");
 
             assert_eq!(hits.len(), 1);
@@ -1076,7 +1066,8 @@ mod tests {
         let temp_dir = unique_temp_path();
 
         {
-            let mut store = DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
 
             let document = CachedDocumentPayload {
                 id: "doc-hybrid-1".to_string(),
@@ -1089,7 +1080,9 @@ mod tests {
                 updated_at: "2026-02-13T00:00:00Z".to_string(),
                 tags: vec![],
             };
-            store.upsert_document(&document).expect("upsert should succeed");
+            store
+                .upsert_document(&document)
+                .expect("upsert should succeed");
 
             let embedding = CachedDocumentEmbeddingPayload {
                 document_id: document.id.clone(),
@@ -1098,7 +1091,9 @@ mod tests {
                 vector: vec![0.5; EMBEDDING_VECTOR_DIMENSIONS],
                 updated_at: "2026-02-13T00:00:00Z".to_string(),
             };
-            store.upsert_document_embedding(&embedding).expect("embedding upsert should succeed");
+            store
+                .upsert_document_embedding(&embedding)
+                .expect("embedding upsert should succeed");
 
             let hits = store
                 .hybrid_search_documents(
@@ -1124,7 +1119,8 @@ mod tests {
         let temp_dir = unique_temp_path();
 
         {
-            let mut store = DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
             let document = CachedDocumentPayload {
                 id: "doc-bm25-only".to_string(),
                 user_id: "user-1".to_string(),
@@ -1136,7 +1132,9 @@ mod tests {
                 updated_at: "2026-02-13T00:00:00Z".to_string(),
                 tags: vec![],
             };
-            store.upsert_document(&document).expect("upsert should succeed");
+            store
+                .upsert_document(&document)
+                .expect("upsert should succeed");
 
             let hits = store
                 .hybrid_search_documents(
@@ -1150,7 +1148,10 @@ mod tests {
                 )
                 .expect("hybrid search should succeed in bm25-only mode");
 
-            assert!(!hits.is_empty(), "expected at least one BM25-only hybrid search hit");
+            assert!(
+                !hits.is_empty(),
+                "expected at least one BM25-only hybrid search hit"
+            );
             assert_eq!(hits[0].document_id, document.id);
         }
 
