@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use hf_hub::api::sync::{Api as HfApi, ApiError as HfApiError, ApiRepo as HfApiRepo};
 use hf_hub::api::Siblings;
@@ -215,8 +216,11 @@ impl EmbeddingEngine {
             let tensor = if key.contains(INPUT_IDS_NAME) {
                 Tensor::from_array(([batch_size, sequence_length], input_ids.clone()))?.upcast()
             } else if key.contains(ATTENTION_MASK_NAME) {
-                Tensor::from_array(([batch_size, total_sequence_length], attention_mask_with_past.clone()))?
-                    .upcast()
+                Tensor::from_array((
+                    [batch_size, total_sequence_length],
+                    attention_mask_with_past.clone(),
+                ))?
+                .upcast()
             } else if key.contains(TOKEN_TYPE_IDS_NAME) {
                 let token_type_ids = if type_ids.len() == sequence_length {
                     type_ids.clone()
@@ -234,7 +238,8 @@ impl EmbeddingEngine {
             } else if key.contains(USE_CACHE_BRANCH_NAME) {
                 build_use_cache_branch_tensor(spec)?
             } else if key.contains(CACHE_POSITION_NAME) {
-                let cache_position = (past_sequence_length..(past_sequence_length + sequence_length))
+                let cache_position = (past_sequence_length
+                    ..(past_sequence_length + sequence_length))
                     .map(|idx| idx as i64)
                     .collect::<Vec<_>>();
                 Tensor::from_array(([sequence_length], cache_position))?.upcast()
@@ -323,7 +328,11 @@ fn infer_past_kv_shape(spec: &ModelInputSpec, batch_size: usize) -> Vec<usize> {
 fn infer_past_sequence_length(input_specs: &[ModelInputSpec], batch_size: usize) -> usize {
     input_specs
         .iter()
-        .find(|spec| spec.name.to_ascii_lowercase().starts_with(PAST_KEY_VALUES_NAME))
+        .find(|spec| {
+            spec.name
+                .to_ascii_lowercase()
+                .starts_with(PAST_KEY_VALUES_NAME)
+        })
         .and_then(|spec| infer_past_kv_shape(spec, batch_size).get(2).copied())
         .unwrap_or(0)
 }
@@ -763,6 +772,7 @@ pub fn delete_document_embeddings(
 pub fn hybrid_search_documents_by_query(
     store: &DocumentCacheStore,
     query_text: &str,
+    semantic_query_text: Option<&str>,
     limit: usize,
     min_score: f32,
     exclude_document_id: Option<String>,
@@ -773,19 +783,56 @@ pub fn hybrid_search_documents_by_query(
     if normalized_query.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
+    let started = Instant::now();
 
-    let (query_vector, semantic_weight, bm25_weight) = match embed_query_text(normalized_query) {
-        Ok(vector) => (vector, semantic_weight, bm25_weight),
-        Err(error) => {
-            log::warn!(
-                "[semantic-search] Query embedding failed, falling back to BM25-only mode: {}",
-                error
+    let normalized_semantic_query = semantic_query_text.unwrap_or(query_text).trim();
+    let has_semantic_query = !normalized_semantic_query.is_empty();
+    log::info!(
+        "[search-debug][query] query_text=\"{}\" semantic_query_text=\"{}\" limit={} min_score={} semantic_weight={} bm25_weight={} exclude={:?}",
+        normalized_query,
+        normalized_semantic_query,
+        limit,
+        min_score,
+        semantic_weight,
+        bm25_weight,
+        exclude_document_id
+    );
+
+    let (query_vector, semantic_weight, bm25_weight) =
+        if semantic_weight > 0.0 && has_semantic_query {
+            let embed_started = Instant::now();
+            match embed_query_text(normalized_semantic_query) {
+                Ok(vector) => {
+                    log::info!(
+                        "[search-debug][query] embedding=ok dim={} elapsed_ms={}",
+                        vector.len(),
+                        embed_started.elapsed().as_millis()
+                    );
+                    (vector, semantic_weight, bm25_weight)
+                }
+                Err(error) => {
+                    log::warn!(
+                    "[semantic-search] Query embedding failed, falling back to BM25-only mode: {}",
+                    error
+                );
+                    (vec![0.0_f32; LOCAL_EMBEDDING_DIMENSIONS], 0.0_f32, 1.0_f32)
+                }
+            }
+        } else {
+            log::info!(
+                "[search-debug][query] embedding=skipped semantic_weight={} has_semantic_query={}",
+                semantic_weight,
+                has_semantic_query
             );
-            (vec![0.0_f32; LOCAL_EMBEDDING_DIMENSIONS], 0.0_f32, 1.0_f32)
-        }
-    };
+            let effective_bm25_weight = if bm25_weight > 0.0 { bm25_weight } else { 1.0 };
+            (
+                vec![0.0_f32; LOCAL_EMBEDDING_DIMENSIONS],
+                0.0_f32,
+                effective_bm25_weight,
+            )
+        };
 
-    store
+    let hits = store
         .hybrid_search_documents(
             query_vector,
             query_text,
@@ -795,7 +842,19 @@ pub fn hybrid_search_documents_by_query(
             semantic_weight,
             bm25_weight,
         )
-        .map_err(EmbeddingError::from)
+        .map_err(EmbeddingError::from)?;
+    let top = hits
+        .iter()
+        .take(5)
+        .map(|hit| format!("{}:{:.4}", hit.document_id, hit.score))
+        .collect::<Vec<_>>();
+    log::info!(
+        "[search-debug][query] final_hits={} top={:?} elapsed_ms={}",
+        hits.len(),
+        top,
+        started.elapsed().as_millis()
+    );
+    Ok(hits)
 }
 
 #[cfg(test)]
@@ -805,8 +864,8 @@ mod tests {
 
     use super::{
         build_attention_mask_with_past, infer_past_kv_shape, infer_past_sequence_length,
-        l2_normalize, pool_embedding, ModelInputSpec, PAST_KEY_VALUES_NAME,
-        LOCAL_EMBEDDING_DIMENSIONS,
+        l2_normalize, pool_embedding, ModelInputSpec, LOCAL_EMBEDDING_DIMENSIONS,
+        PAST_KEY_VALUES_NAME,
     };
 
     #[test]

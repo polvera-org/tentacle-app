@@ -52,6 +52,7 @@ export function preprocessQuery(raw: string): ProcessedQuery {
   const trimmed = raw.trim()
   const words = trimmed.split(/\s+/).filter((w) => w.length > 0)
   const wordCount = words.length
+  const hasLongSingleWord = wordCount === 1 && words[0].length >= 5
 
   // Adaptive weights based on query length.
   // Short queries (1 word) → BM25-heavy (exact match matters more).
@@ -60,14 +61,19 @@ export function preprocessQuery(raw: string): ProcessedQuery {
   let bm25Weight: number
 
   if (wordCount <= 1) {
-    semanticWeight = 0.3
-    bm25Weight = 0.7
+    if (hasLongSingleWord) {
+      semanticWeight = 0.2
+      bm25Weight = 0.8
+    } else {
+      semanticWeight = 0.0
+      bm25Weight = 1.0
+    }
   } else if (wordCount <= 4) {
-    semanticWeight = 0.5
-    bm25Weight = 0.5
+    semanticWeight = 0.35
+    bm25Weight = 0.65
   } else {
-    semanticWeight = 0.7
-    bm25Weight = 0.3
+    semanticWeight = 0.55
+    bm25Weight = 0.45
   }
 
   // FTS query: original tokens unchanged (preserve exact terms like "OAuth", "API").

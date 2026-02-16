@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Once;
+use std::time::Instant;
 
 use rusqlite::{params, Connection, Transaction};
 use serde::{Deserialize, Serialize};
@@ -179,20 +180,124 @@ fn initialize_sqlite_vec_extension() {
     });
 }
 
+fn is_fts_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "a" | "an"
+            | "and"
+            | "are"
+            | "as"
+            | "at"
+            | "be"
+            | "but"
+            | "by"
+            | "for"
+            | "from"
+            | "how"
+            | "if"
+            | "in"
+            | "into"
+            | "is"
+            | "it"
+            | "no"
+            | "not"
+            | "of"
+            | "on"
+            | "or"
+            | "that"
+            | "the"
+            | "their"
+            | "then"
+            | "there"
+            | "these"
+            | "they"
+            | "this"
+            | "to"
+            | "was"
+            | "will"
+            | "with"
+    )
+}
+
+fn tokenize_query_terms(raw: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for token in raw.split(|c: char| !c.is_alphanumeric() && c != '-') {
+        let normalized = token.trim().to_lowercase();
+        if normalized.len() < 2 || is_fts_stopword(&normalized) {
+            continue;
+        }
+
+        if seen.insert(normalized.clone()) {
+            tokens.push(normalized);
+        }
+    }
+
+    tokens
+}
+
+fn stemmed_token_prefix(token: &str) -> Option<String> {
+    let lower = token.to_lowercase();
+    let mut stem = lower.clone();
+
+    if stem.len() > 6 && stem.ends_with("ing") {
+        let new_len = stem.len().saturating_sub(3);
+        stem.truncate(new_len);
+    } else if stem.len() > 5 && stem.ends_with("edly") {
+        let new_len = stem.len().saturating_sub(4);
+        stem.truncate(new_len);
+    } else if stem.len() > 4 && stem.ends_with("ed") {
+        let new_len = stem.len().saturating_sub(2);
+        stem.truncate(new_len);
+    } else if stem.len() > 4 && stem.ends_with("ies") {
+        let new_len = stem.len().saturating_sub(3);
+        stem.truncate(new_len);
+        stem.push('y');
+    } else if stem.len() > 4 && stem.ends_with("es") {
+        let new_len = stem.len().saturating_sub(2);
+        stem.truncate(new_len);
+    } else if stem.len() > 4 && stem.ends_with("s") {
+        let new_len = stem.len().saturating_sub(1);
+        stem.truncate(new_len);
+    } else if stem.len() > 5 && stem.ends_with("al") {
+        let new_len = stem.len().saturating_sub(2);
+        stem.truncate(new_len);
+    } else if stem.len() > 5 && stem.ends_with("ly") {
+        let new_len = stem.len().saturating_sub(2);
+        stem.truncate(new_len);
+    }
+
+    if stem == lower || stem.len() < 3 {
+        return None;
+    }
+
+    Some(stem)
+}
+
 /// Sanitize a raw user query for use in FTS5 MATCH.
-/// Splits on non-alphanumeric chars (except hyphen), wraps tokens ≥2 chars in double quotes,
-/// joins with OR. Returns None if no valid tokens (fall back to pure semantic).
+/// Splits on non-alphanumeric chars (except hyphen), removes trivial stopwords,
+/// and combines remaining tokens with AND for precision.
+/// Returns None if no valid tokens (fall back to semantic-only).
 fn sanitize_fts5_query(raw: &str) -> Option<String> {
-    let tokens: Vec<String> = raw
-        .split(|c: char| !c.is_alphanumeric() && c != '-')
-        .filter(|t| t.len() >= 2)
-        .map(|t| format!("\"{}\"", t.replace('"', "")))
-        .collect();
+    let tokens = tokenize_query_terms(raw);
 
     if tokens.is_empty() {
         None
     } else {
-        Some(tokens.join(" OR "))
+        Some(
+            tokens
+                .iter()
+                .map(|token| {
+                    if let Some(stem) = stemmed_token_prefix(token) {
+                        format!("(\"{}\" OR {}*)", token, stem)
+                    } else {
+                        format!("\"{}\"", token)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" AND "),
+        )
     }
 }
 
@@ -596,9 +701,16 @@ impl DocumentCacheStore {
         limit: usize,
         exclude_document_id: Option<&str>,
     ) -> Result<Vec<Bm25Hit>, DocumentCacheError> {
+        let started = Instant::now();
         let fts_query = match sanitize_fts5_query(query_text) {
             Some(q) => q,
-            None => return Ok(Vec::new()),
+            None => {
+                log::info!(
+                    "[search-debug][bm25] query=\"{}\" produced no FTS tokens; skipping BM25 leg",
+                    query_text
+                );
+                return Ok(Vec::new());
+            }
         };
 
         let k = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -613,7 +725,7 @@ impl DocumentCacheStore {
              LIMIT ?3",
         )?;
 
-        let rows = statement.query_map(params![fts_query, exclude_document_id, k], |row| {
+        let rows = statement.query_map(params![&fts_query, exclude_document_id, k], |row| {
             row.get::<_, String>(0)
         })?;
 
@@ -622,6 +734,22 @@ impl DocumentCacheStore {
             let document_id = row?;
             hits.push(Bm25Hit { document_id });
         }
+
+        let top = hits
+            .iter()
+            .take(5)
+            .map(|hit| hit.document_id.as_str())
+            .collect::<Vec<_>>();
+        log::info!(
+            "[search-debug][bm25] query=\"{}\" fts={} limit={} exclude={:?} hits={} top={:?} elapsed_ms={}",
+            query_text,
+            fts_query,
+            limit,
+            exclude_document_id,
+            hits.len(),
+            top,
+            started.elapsed().as_millis()
+        );
 
         Ok(hits)
     }
@@ -635,6 +763,7 @@ impl DocumentCacheStore {
         min_score: f32,
         exclude_document_id: Option<&str>,
     ) -> Result<Vec<SemanticSearchHitPayload>, DocumentCacheError> {
+        let started = Instant::now();
         // Check if chunk table has any rows.
         let chunk_count: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM document_chunk_embeddings_meta LIMIT 1",
@@ -644,15 +773,29 @@ impl DocumentCacheStore {
 
         if chunk_count == 0 {
             // Fall back to whole-doc KNN.
-            return self.semantic_search_documents(
+            let hits = self.semantic_search_documents(
                 query_vector.to_vec(),
                 limit,
                 min_score,
                 exclude_document_id.map(str::to_owned),
+            )?;
+            let top = hits
+                .iter()
+                .take(5)
+                .map(|hit| format!("{}:{:.3}", hit.document_id, hit.score))
+                .collect::<Vec<_>>();
+            log::info!(
+                "[search-debug][semantic] chunk_count=0 fallback=whole-doc limit={} min_score={} hits={} top={:?} elapsed_ms={}",
+                limit,
+                min_score,
+                hits.len(),
+                top,
+                started.elapsed().as_millis()
             );
+            return Ok(hits);
         }
 
-        let k = (limit * 8).max(1);
+        let k = (limit * 4).max(1);
         let k = i64::try_from(k).unwrap_or(i64::MAX);
         let query_vector_bytes = f32_vector_to_le_bytes(query_vector);
         let bounded_min_score = min_score.clamp(-1.0, 1.0);
@@ -682,6 +825,23 @@ impl DocumentCacheStore {
             }
         }
 
+        let top = hits
+            .iter()
+            .take(5)
+            .map(|hit| format!("{}:{:.3}", hit.document_id, hit.score))
+            .collect::<Vec<_>>();
+        log::info!(
+            "[search-debug][semantic] chunk_count={} k={} limit={} min_score={} exclude={:?} hits={} top={:?} elapsed_ms={}",
+            chunk_count,
+            k,
+            limit,
+            bounded_min_score,
+            exclude_document_id,
+            hits.len(),
+            top,
+            started.elapsed().as_millis()
+        );
+
         Ok(hits)
     }
 
@@ -696,13 +856,14 @@ impl DocumentCacheStore {
         semantic_weight: f32,
         bm25_weight: f32,
     ) -> Result<Vec<HybridSearchHitPayload>, DocumentCacheError> {
+        let started = Instant::now();
         if limit == 0 {
             return Ok(Vec::new());
         }
 
         validate_embedding_vector(&query_vector)?;
 
-        let candidate_k = limit.saturating_mul(4).max(1);
+        let candidate_k = limit.saturating_mul(2).max(1);
 
         // BM25 leg
         let bm25_hits = if bm25_weight > 0.0 {
@@ -739,6 +900,17 @@ impl DocumentCacheStore {
         }
 
         if all_doc_ids.is_empty() {
+            log::info!(
+                "[search-debug][hybrid] query=\"{}\" limit={} min_score={} semantic_weight={} bm25_weight={} bm25_hits={} semantic_hits={} candidates=0 elapsed_ms={}",
+                query_text,
+                limit,
+                min_score,
+                semantic_weight,
+                bm25_weight,
+                bm25_hits.len(),
+                semantic_hits.len(),
+                started.elapsed().as_millis()
+            );
             return Ok(Vec::new());
         }
 
@@ -757,48 +929,64 @@ impl DocumentCacheStore {
             .map(|(i, h)| (h.document_id.as_str(), i))
             .collect();
 
-        // Query tokens for title boost (lowercased)
-        let query_tokens: Vec<String> = query_text
-            .split_whitespace()
-            .map(|t| t.to_lowercase())
+        // Query tokens for title boost (token-exact; excludes stopwords).
+        let query_tokens: HashSet<String> = tokenize_query_terms(query_text).into_iter().collect();
+        let semantic_score_map: HashMap<&str, f32> = semantic_hits
+            .iter()
+            .map(|hit| (hit.document_id.as_str(), hit.score))
             .collect();
+        let bounded_min_score = min_score.clamp(-1.0, 1.0);
+        let semantic_floor = bounded_min_score.max(0.15);
 
         // RRF scoring
         const RRF_K: f32 = 60.0;
-        let mut results: Vec<HybridSearchHitPayload> = all_doc_ids
-            .iter()
-            .map(|doc_id| {
-                let sem_score = semantic_rank
-                    .get(doc_id.as_str())
-                    .map(|&rank| semantic_weight / (RRF_K + rank as f32))
-                    .unwrap_or(0.0);
+        let mut dropped_semantic_only = 0_usize;
+        let mut results: Vec<HybridSearchHitPayload> = Vec::with_capacity(all_doc_ids.len());
+        for doc_id in &all_doc_ids {
+            let has_bm25 = bm25_rank.contains_key(doc_id.as_str());
+            let semantic_raw_score = semantic_score_map.get(doc_id.as_str()).copied();
+            let semantic_passes_floor = semantic_raw_score
+                .map(|score| score >= semantic_floor)
+                .unwrap_or(false);
 
-                let bm25_score = bm25_rank
-                    .get(doc_id.as_str())
-                    .map(|&rank| bm25_weight / (RRF_K + rank as f32))
-                    .unwrap_or(0.0);
+            // Avoid flooding results with low-confidence semantic-only hits.
+            if semantic_weight > 0.0 && !has_bm25 && !semantic_passes_floor {
+                dropped_semantic_only += 1;
+                continue;
+            }
 
-                let mut score = sem_score + bm25_score;
+            let sem_score = semantic_rank
+                .get(doc_id.as_str())
+                .map(|&rank| semantic_weight / (RRF_K + rank as f32))
+                .unwrap_or(0.0);
 
-                // Title boost: +0.1 if any query token appears in the title
-                let title_lower = title_map
+            let bm25_score = bm25_rank
+                .get(doc_id.as_str())
+                .map(|&rank| bm25_weight / (RRF_K + rank as f32))
+                .unwrap_or(0.0);
+
+            let mut score = sem_score + bm25_score;
+
+            // Title boost: only for exact term overlap, with a small additive value.
+            if !query_tokens.is_empty() {
+                let has_title_overlap = title_map
                     .get(doc_id.as_str())
-                    .map(|t| t.to_lowercase())
-                    .unwrap_or_default();
-                if !title_lower.is_empty()
-                    && query_tokens
-                        .iter()
-                        .any(|token| title_lower.contains(token.as_str()))
-                {
-                    score += 0.1;
+                    .map(|title| {
+                        tokenize_query_terms(title)
+                            .into_iter()
+                            .any(|title_token| query_tokens.contains(&title_token))
+                    })
+                    .unwrap_or(false);
+                if has_title_overlap {
+                    score += 0.015;
                 }
+            }
 
-                HybridSearchHitPayload {
-                    document_id: doc_id.clone(),
-                    score,
-                }
-            })
-            .collect();
+            results.push(HybridSearchHitPayload {
+                document_id: doc_id.clone(),
+                score,
+            });
+        }
 
         results.sort_by(|a, b| {
             b.score
@@ -807,6 +995,40 @@ impl DocumentCacheStore {
                 .then_with(|| a.document_id.cmp(&b.document_id))
         });
         results.truncate(limit);
+
+        let bm25_top = bm25_hits
+            .iter()
+            .take(5)
+            .map(|hit| hit.document_id.as_str())
+            .collect::<Vec<_>>();
+        let semantic_top = semantic_hits
+            .iter()
+            .take(5)
+            .map(|hit| format!("{}:{:.3}", hit.document_id, hit.score))
+            .collect::<Vec<_>>();
+        let result_top = results
+            .iter()
+            .take(5)
+            .map(|hit| format!("{}:{:.4}", hit.document_id, hit.score))
+            .collect::<Vec<_>>();
+        log::info!(
+            "[search-debug][hybrid] query=\"{}\" limit={} candidate_k={} min_score={} semantic_weight={} bm25_weight={} bm25_hits={} semantic_hits={} candidates={} dropped_semantic_only={} final_hits={} bm25_top={:?} semantic_top={:?} final_top={:?} elapsed_ms={}",
+            query_text,
+            limit,
+            candidate_k,
+            min_score,
+            semantic_weight,
+            bm25_weight,
+            bm25_hits.len(),
+            semantic_hits.len(),
+            all_doc_ids.len(),
+            dropped_semantic_only,
+            results.len(),
+            bm25_top,
+            semantic_top,
+            result_top,
+            started.elapsed().as_millis()
+        );
 
         Ok(results)
     }
@@ -1162,12 +1384,20 @@ mod tests {
     fn sanitize_fts5_query_basic() {
         assert_eq!(
             sanitize_fts5_query("OAuth API"),
-            Some("\"OAuth\" OR \"API\"".to_string())
+            Some("\"oauth\" AND \"api\"".to_string())
         );
         assert_eq!(sanitize_fts5_query("a"), None); // single char token filtered
         assert_eq!(
             sanitize_fts5_query("machine learning"),
-            Some("\"machine\" OR \"learning\"".to_string())
+            Some("\"machine\" AND (\"learning\" OR learn*)".to_string())
+        );
+        assert_eq!(
+            sanitize_fts5_query("how to use the api"),
+            Some("\"use\" AND \"api\"".to_string())
+        );
+        assert_eq!(
+            sanitize_fts5_query("Herbal"),
+            Some("(\"herbal\" OR herb*)".to_string())
         );
     }
 }

@@ -223,6 +223,7 @@ fn delete_document_embeddings(documents_folder: String, document_id: String) -> 
 fn hybrid_search_documents_by_query(
     documents_folder: String,
     query_text: String,
+    semantic_query_text: Option<String>,
     semantic_weight: f32,
     bm25_weight: f32,
     limit: usize,
@@ -234,6 +235,7 @@ fn hybrid_search_documents_by_query(
     hybrid_search_documents_by_query_in_core(
         &store,
         &query_text,
+        semantic_query_text.as_deref(),
         limit,
         min_score,
         exclude_document_id,

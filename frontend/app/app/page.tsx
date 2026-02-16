@@ -8,7 +8,7 @@ import { useDebounce } from '@/hooks/use-debounce'
 export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearchQuery = useDebounce(searchQuery, 250)
+  const debouncedSearchQuery = useDebounce(searchQuery, 400)
 
   return (
     <div className="h-full flex flex-col bg-white">

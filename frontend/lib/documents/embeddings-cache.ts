@@ -18,6 +18,8 @@ export interface EmbeddingSyncDocumentPayload {
 export interface HybridSearchByQueryArgs {
   query_text?: string
   queryText?: string
+  semantic_query_text?: string
+  semanticQueryText?: string
   semantic_weight?: number
   semanticWeight?: number
   bm25_weight?: number
@@ -264,6 +266,7 @@ export async function hybridSearchDocumentsByQuery(
   if (queryText.length === 0) {
     return []
   }
+  const semanticQueryText = normalizeString(args.semantic_query_text ?? args.semanticQueryText, queryText)
 
   const semanticWeight = normalizeFiniteNumber(args.semantic_weight ?? args.semanticWeight, 0.5)
   const bm25Weight = normalizeFiniteNumber(args.bm25_weight ?? args.bm25Weight, 0.5)
@@ -275,6 +278,8 @@ export async function hybridSearchDocumentsByQuery(
     ...createFolderArgs(normalizedFolder),
     queryText,
     query_text: queryText,
+    semanticQueryText,
+    semantic_query_text: semanticQueryText,
     semanticWeight,
     semantic_weight: semanticWeight,
     bm25Weight,

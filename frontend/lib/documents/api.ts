@@ -1050,12 +1050,13 @@ export async function semanticSearchDocuments(
     return []
   }
 
-  const { normalized, semanticWeight, bm25Weight } = preprocessQuery(normalizedQuery)
+  const { normalized, ftsQuery, semanticWeight, bm25Weight } = preprocessQuery(normalizedQuery)
 
   const normalizedOptions = options ?? {}
   const folder = await getConfiguredDocumentsFolder()
   return await hybridSearchDocumentsByQuery(folder, {
-    query_text: normalized,
+    query_text: ftsQuery,
+    semantic_query_text: normalized,
     semantic_weight: semanticWeight,
     bm25_weight: bm25Weight,
     limit: normalizedOptions.limit,
