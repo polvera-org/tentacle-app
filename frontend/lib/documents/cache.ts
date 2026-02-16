@@ -6,6 +6,7 @@ interface CachedDocumentPayload {
   user_id: string
   title: string
   body: string
+  folder_path: string
   banner_image_url: string | null
   deleted_at: string | null
   created_at: string
@@ -70,6 +71,34 @@ function normalizeTags(value: unknown): string[] {
   return tags
 }
 
+function normalizeFolderPath(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.trim().replace(/\\/g, '/')
+  if (normalized.length === 0 || normalized === '/' || normalized === '.') {
+    return ''
+  }
+
+  const segments: string[] = []
+  for (const segment of normalized.split('/')) {
+    const trimmedSegment = segment.trim()
+    if (trimmedSegment.length === 0 || trimmedSegment === '.') {
+      continue
+    }
+
+    if (trimmedSegment === '..') {
+      segments.pop()
+      continue
+    }
+
+    segments.push(trimmedSegment)
+  }
+
+  return segments.join('/')
+}
+
 function normalizeTimestamp(value: unknown, fallback: string): string {
   return normalizeString(value, fallback)
 }
@@ -114,6 +143,7 @@ function toCachedDocumentPayloadFromDocument(document: Document): CachedDocument
     user_id: normalizeString(document.user_id, LOCAL_USER_ID),
     title: normalizeString(document.title, DEFAULT_TITLE),
     body: normalizeString(document.body),
+    folder_path: normalizeFolderPath(document.folder_path),
     banner_image_url: normalizeNullableString(document.banner_image_url),
     deleted_at: normalizeNullableString(document.deleted_at),
     created_at: createdAt,
@@ -130,6 +160,7 @@ function toCachedDocumentPayloadFromListItem(document: DocumentListItem): Cached
     user_id: LOCAL_USER_ID,
     title: normalizeString(document.title, DEFAULT_TITLE),
     body: normalizeString(document.body),
+    folder_path: normalizeFolderPath(document.folder_path),
     banner_image_url: normalizeNullableString(document.banner_image_url),
     deleted_at: null,
     created_at: createdAt,
@@ -156,6 +187,7 @@ function toDocumentListItem(payload: unknown): DocumentListItem | null {
     id,
     title: normalizeString(cached.title, DEFAULT_TITLE),
     body: normalizeString(cached.body),
+    folder_path: normalizeFolderPath(cached.folder_path),
     banner_image_url: normalizeNullableString(cached.banner_image_url),
     created_at: createdAt,
     updated_at: updatedAt,
@@ -192,7 +224,14 @@ export async function readCachedDocuments(folder: string): Promise<DocumentListI
   return payload
     .map(toDocumentListItem)
     .filter((document): document is DocumentListItem => document !== null)
-    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .sort((a, b) => {
+      const byUpdatedAt = b.updated_at.localeCompare(a.updated_at)
+      if (byUpdatedAt !== 0) {
+        return byUpdatedAt
+      }
+
+      return a.id.localeCompare(b.id)
+    })
 }
 
 export async function readCachedDocumentTags(folder: string): Promise<DocumentTagUsage[]> {

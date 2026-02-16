@@ -3,6 +3,7 @@ export interface Document {
   user_id: string
   title: string
   body: string
+  folder_path: string
   tags: string[]
   tags_locked?: boolean
   banner_image_url: string | null
@@ -22,11 +23,20 @@ export interface DocumentListItem {
   id: string
   title: string
   body: string
+  folder_path: string
   tags: string[]
   tags_locked?: boolean
   banner_image_url: string | null
   created_at: string
   updated_at: string
+}
+
+export interface DocumentFolder {
+  path: string
+  name: string
+  parent_path: string | null
+  document_count: number
+  subfolder_count: number
 }
 
 export interface DocumentTagUsage {
@@ -72,12 +82,14 @@ export interface CachedDocumentChunkEmbeddingPayload {
 
 export interface CreateDocumentPayload {
   title?: string
+  folder_path?: string
   tags?: string[]
 }
 
 export interface UpdateDocumentPayload {
   title?: string
   body?: string
+  folder_path?: string
   tags?: string[]
   tags_locked?: boolean
   banner_image_url?: string | null

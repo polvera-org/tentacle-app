@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS documents (
   user_id TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
+  folder_path TEXT NOT NULL DEFAULT '',
   banner_image_url TEXT,
   deleted_at TEXT,
   created_at TEXT NOT NULL,
@@ -113,6 +114,7 @@ pub struct CachedDocumentPayload {
     pub user_id: String,
     pub title: String,
     pub body: String,
+    pub folder_path: String,
     pub banner_image_url: Option<String>,
     pub deleted_at: Option<String>,
     pub created_at: String,
@@ -315,8 +317,30 @@ impl DocumentCacheStore {
         connection.execute_batch(CREATE_SCHEMA_SQL)?;
 
         let store = Self { connection };
+        store.ensure_documents_folder_path_column()?;
         store.rebuild_fts_index_if_empty()?;
         Ok(store)
+    }
+
+    fn ensure_documents_folder_path_column(&self) -> Result<(), DocumentCacheError> {
+        let has_folder_path_column = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('documents') WHERE name = 'folder_path' LIMIT 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_some();
+
+        if !has_folder_path_column {
+            self.connection.execute(
+                "ALTER TABLE documents ADD COLUMN folder_path TEXT NOT NULL DEFAULT ''",
+                [],
+            )?;
+        }
+
+        Ok(())
     }
 
     /// Ensure the FTS5 index is consistent with the documents table.
@@ -376,6 +400,7 @@ impl DocumentCacheStore {
                d.user_id,
                d.title,
                d.body,
+               d.folder_path,
                d.banner_image_url,
                d.deleted_at,
                d.created_at,
@@ -392,7 +417,7 @@ impl DocumentCacheStore {
 
         while let Some(row) = rows.next()? {
             let document_id: String = row.get(0)?;
-            let tag: Option<String> = row.get(8)?;
+            let tag: Option<String> = row.get(9)?;
 
             if let Some(index) = index_by_document_id.get(&document_id).copied() {
                 if let Some(tag) = tag {
@@ -406,10 +431,11 @@ impl DocumentCacheStore {
                 user_id: row.get(1)?,
                 title: row.get(2)?,
                 body: row.get(3)?,
-                banner_image_url: row.get(4)?,
-                deleted_at: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                folder_path: row.get(4)?,
+                banner_image_url: row.get(5)?,
+                deleted_at: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
                 tags: Vec::new(),
             };
 
@@ -1097,14 +1123,15 @@ impl DocumentCacheStore {
     ) -> Result<(), rusqlite::Error> {
         transaction.execute(
             "INSERT INTO documents (
-               id, user_id, title, body, banner_image_url, deleted_at, created_at, updated_at
+               id, user_id, title, body, folder_path, banner_image_url, deleted_at, created_at, updated_at
              ) VALUES (
-               ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+               ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
              )
              ON CONFLICT(id) DO UPDATE SET
                user_id = excluded.user_id,
                title = excluded.title,
                body = excluded.body,
+               folder_path = excluded.folder_path,
                banner_image_url = excluded.banner_image_url,
                deleted_at = excluded.deleted_at,
                created_at = excluded.created_at,
@@ -1114,6 +1141,7 @@ impl DocumentCacheStore {
                 document.user_id,
                 document.title,
                 document.body,
+                document.folder_path,
                 document.banner_image_url,
                 document.deleted_at,
                 document.created_at,
@@ -1254,6 +1282,7 @@ mod tests {
                 user_id: "user-1".to_string(),
                 title: "Test".to_string(),
                 body: "Body".to_string(),
+                folder_path: "".to_string(),
                 banner_image_url: None,
                 deleted_at: None,
                 created_at: "2026-02-13T00:00:00Z".to_string(),
@@ -1317,6 +1346,7 @@ mod tests {
                 user_id: "user-1".to_string(),
                 title: "OAuth Authentication Guide".to_string(),
                 body: "This document explains OAuth 2.0 authentication flows.".to_string(),
+                folder_path: "".to_string(),
                 banner_image_url: None,
                 deleted_at: None,
                 created_at: "2026-02-13T00:00:00Z".to_string(),
@@ -1369,6 +1399,7 @@ mod tests {
                 user_id: "user-1".to_string(),
                 title: "OAuth Authentication Guide".to_string(),
                 body: "This note explains OAuth login best practices.".to_string(),
+                folder_path: "".to_string(),
                 banner_image_url: None,
                 deleted_at: None,
                 created_at: "2026-02-13T00:00:00Z".to_string(),
