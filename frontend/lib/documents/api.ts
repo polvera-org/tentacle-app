@@ -11,8 +11,16 @@ import {
   hybridSearchDocumentsByQuery,
   syncDocumentEmbeddings,
 } from '@/lib/documents/embeddings-cache'
+import {
+  createDocumentFolder as createDocumentFolderCommand,
+  deleteDocumentFolder as deleteDocumentFolderCommand,
+  fetchDocumentFolders as fetchDocumentFoldersCommand,
+  moveDocumentToFolder as moveDocumentToFolderCommand,
+  renameDocumentFolder as renameDocumentFolderCommand,
+} from '@/lib/documents/folders'
 import type {
   Document,
+  DocumentFolder,
   DocumentListItem,
   DocumentTagUsage,
   CreateDocumentPayload,
@@ -60,6 +68,7 @@ interface StoredMarkdownFile {
   name: string
   path: string
   titleFromFileName: string
+  relativeFolderPath: string
 }
 
 interface StoredDocumentReadResult {
@@ -111,8 +120,7 @@ async function getFsApi(): Promise<FsApi> {
 
   return {
     readDir: async (path) => {
-      // Note: Tauri fs plugin doesn't support recursive option
-      // We only read the immediate directory (recursive reading not needed for our use case)
+      // Tauri fs plugin returns only immediate directory entries.
       const entries = await fs.readDir(path)
       return await Promise.all(
         entries.map(async entry => {
@@ -195,6 +203,73 @@ function removeMarkdownExtension(name: string): string {
   }
 
   return name.slice(0, -MARKDOWN_EXTENSION.length)
+}
+
+function normalizeFolderPath(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const normalized = value.trim().replace(/\\/g, '/')
+  if (normalized.length === 0 || normalized === '/' || normalized === '.') {
+    return ''
+  }
+
+  const segments: string[] = []
+  for (const segment of normalized.split('/')) {
+    const trimmedSegment = segment.trim()
+    if (trimmedSegment.length === 0 || trimmedSegment === '.') {
+      continue
+    }
+
+    if (trimmedSegment === '..') {
+      segments.pop()
+      continue
+    }
+
+    segments.push(trimmedSegment)
+  }
+
+  return segments.join('/')
+}
+
+function normalizeFolderPathForComparison(path: string): string {
+  return normalizeFolderPath(path).toLowerCase()
+}
+
+function toForwardSlashPath(path: string): string {
+  return trimTrailingSeparators(path).replace(/\\/g, '/')
+}
+
+function getRelativePathFromRoot(rootPath: string, targetPath: string): string {
+  const normalizedRoot = toForwardSlashPath(rootPath)
+  const normalizedTarget = toForwardSlashPath(targetPath)
+  const rootLower = normalizedRoot.toLowerCase()
+  const targetLower = normalizedTarget.toLowerCase()
+
+  if (targetLower === rootLower) {
+    return ''
+  }
+
+  if (targetLower.startsWith(`${rootLower}/`)) {
+    return normalizedTarget.slice(normalizedRoot.length + 1)
+  }
+
+  return normalizedTarget.replace(/^\/+/, '')
+}
+
+function isTrashSubtreePath(relativePath: string): boolean {
+  const normalized = normalizeFolderPath(relativePath)
+  return normalized === TRASH_FOLDER_NAME || normalized.startsWith(`${TRASH_FOLDER_NAME}/`)
+}
+
+function resolveFolderAbsolutePath(folder: string, relativeFolderPath: string): string {
+  const normalizedFolderPath = normalizeFolderPath(relativeFolderPath)
+  if (normalizedFolderPath.length === 0) {
+    return folder
+  }
+
+  return joinPath(folder, normalizedFolderPath)
 }
 
 function normalizeDocumentId(value: unknown): string | null {
@@ -792,12 +867,13 @@ function markdownToTiptapBody(markdown: string): string {
   return JSON.stringify(markdownToTiptapDocument(normalized))
 }
 
-function mapStoredRecordToDocument(record: StoredDocumentRecord): Document {
+function mapStoredRecordToDocument(record: StoredDocumentRecord, relativeFolderPath = ''): Document {
   return {
     id: record.metadata.id,
     user_id: 'local',
     title: record.title,
     body: record.body,
+    folder_path: normalizeFolderPath(relativeFolderPath),
     tags: normalizeTags(record.metadata.tags),
     tags_locked: record.metadata.tags_locked ?? false,
     banner_image_url: record.metadata.banner_image_url,
@@ -812,6 +888,7 @@ function mapDocumentToListItem(document: Document): DocumentListItem {
     id: document.id,
     title: document.title,
     body: document.body,
+    folder_path: normalizeFolderPath(document.folder_path),
     tags: document.tags,
     tags_locked: document.tags_locked,
     banner_image_url: document.banner_image_url,
@@ -840,39 +917,87 @@ function resolveTimestampValue(
   return { value: normalized, usedFallback: false }
 }
 
-function parseStoredMarkdownFile(filePath: string): StoredMarkdownFile {
+function parseStoredMarkdownFile(filePath: string, folder: string): StoredMarkdownFile {
   const name = getFileNameFromPath(filePath)
+  const relativePath = getRelativePathFromRoot(folder, filePath).replace(/\\/g, '/')
+  const relativeFolderPath = normalizeFolderPath(
+    relativePath.includes('/')
+      ? relativePath.slice(0, relativePath.lastIndexOf('/'))
+      : '',
+  )
+
   return {
     name,
     path: filePath,
     titleFromFileName: normalizeTitle(removeMarkdownExtension(name)),
+    relativeFolderPath,
   }
 }
 
 async function listStoredMarkdownFiles(fs: FsApi, folder: string): Promise<StoredMarkdownFile[]> {
-  const entries = await fs.readDir(folder, { recursive: false })
+  const normalizedFolder = trimTrailingSeparators(folder)
+  const queue: string[] = [normalizedFolder]
+  const files: StoredMarkdownFile[] = []
 
-  return entries
-    .filter((entry) => entry.isDirectory !== true)
-    .map((entry) => entry.path ?? (entry.name ? joinPath(folder, entry.name) : ''))
-    .filter((path) => path.length > 0)
-    .map(parseStoredMarkdownFile)
-    .filter((file) => isMarkdownFileName(file.name))
-    .sort((a, b) => a.path.localeCompare(b.path))
+  while (queue.length > 0) {
+    const currentFolder = queue.shift()
+    if (!currentFolder) {
+      continue
+    }
+
+    let entries: FsDirEntry[]
+    try {
+      entries = await fs.readDir(currentFolder, { recursive: false })
+    } catch (error) {
+      console.error(`[listStoredMarkdownFiles] Failed to read "${currentFolder}":`, error)
+      continue
+    }
+
+    for (const entry of entries) {
+      const entryPath = entry.path ?? (entry.name ? joinPath(currentFolder, entry.name) : '')
+      if (entryPath.length === 0) {
+        continue
+      }
+
+      if (entry.isDirectory === true) {
+        const relativePath = normalizeFolderPath(getRelativePathFromRoot(normalizedFolder, entryPath))
+        if (isTrashSubtreePath(relativePath)) {
+          continue
+        }
+
+        queue.push(entryPath)
+        continue
+      }
+
+      const file = parseStoredMarkdownFile(entryPath, normalizedFolder)
+      if (isTrashSubtreePath(file.relativeFolderPath)) {
+        continue
+      }
+
+      if (isMarkdownFileName(file.name)) {
+        files.push(file)
+      }
+    }
+  }
+
+  return files.sort((a, b) => a.path.localeCompare(b.path))
 }
 
 async function resolveUniqueTitle(
   fs: FsApi,
   folder: string,
+  targetFolderPath: string,
   requestedTitle: string | undefined,
   options?: { excludePath?: string },
 ): Promise<string> {
   const baseTitle = sanitizeTitleForFileName(requestedTitle)
   const files = await listStoredMarkdownFiles(fs, folder)
+  const targetFolderPathKey = normalizeFolderPathForComparison(targetFolderPath)
   const excludedPathKey = options?.excludePath ? normalizePathForComparison(options.excludePath) : null
   const occupiedNames = new Set(
     files
       .filter((file) => normalizePathForComparison(file.path) !== excludedPathKey)
+      .filter((file) => normalizeFolderPathForComparison(file.relativeFolderPath) === targetFolderPathKey)
       .map((file) => file.name.toLowerCase()),
   )
 
@@ -1089,7 +1214,7 @@ export async function reindexDocuments(): Promise<DocumentListItem[]> {
           await writeStoredDocument(fs, file.path, record)
         }
 
-        documents.push(mapStoredRecordToDocument(record))
+        documents.push(mapStoredRecordToDocument(record, file.relativeFolderPath))
       } catch (error) {
         console.error(`[reindexDocuments] Failed to index "${file.path}":`, error)
       }
@@ -1117,6 +1242,48 @@ export async function reindexDocuments(): Promise<DocumentListItem[]> {
 
 export const fetchDocuments = reindexDocuments
 
+async function refreshDocumentsCacheAfterFolderMutation(): Promise<void> {
+  try {
+    await reindexDocuments()
+  } catch (error) {
+    console.error('[documents-folders] Failed to refresh documents cache:', error)
+  }
+}
+
+export async function fetchDocumentFolders(): Promise<DocumentFolder[]> {
+  const folder = await getConfiguredDocumentsFolder()
+  return await fetchDocumentFoldersCommand(folder)
+}
+
+export async function createFolder(folderPath: string): Promise<DocumentFolder> {
+  const folder = await getConfiguredDocumentsFolder()
+  const created = await createDocumentFolderCommand(folder, folderPath)
+  await refreshDocumentsCacheAfterFolderMutation()
+  return created
+}
+
+export async function renameFolder(folderPath: string, newName: string): Promise<DocumentFolder> {
+  const folder = await getConfiguredDocumentsFolder()
+  const renamed = await renameDocumentFolderCommand(folder, folderPath, newName)
+  await refreshDocumentsCacheAfterFolderMutation()
+  return renamed
+}
+
+export async function deleteFolder(
+  folderPath: string,
+  options?: { recursive?: boolean },
+): Promise<void> {
+  const folder = await getConfiguredDocumentsFolder()
+  await deleteDocumentFolderCommand(folder, folderPath, options)
+  await refreshDocumentsCacheAfterFolderMutation()
+}
+
+export async function moveDocumentToFolder(documentId: string, targetFolderPath: string): Promise<void> {
+  const folder = await getConfiguredDocumentsFolder()
+  await moveDocumentToFolderCommand(folder, documentId, targetFolderPath)
+  await refreshDocumentsCacheAfterFolderMutation()
+}
+
 export async function createDocument(payload?: CreateDocumentPayload): Promise<Document> {
   try {
     const folder = await getConfiguredDocumentsFolder()
@@ -1127,8 +1294,12 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
 
     const timestamp = nowIsoString()
     const id = generateDocumentId()
-    const title = await resolveUniqueTitle(fs, folder, payload?.title)
-    const path = joinPath(folder, `${title}${MARKDOWN_EXTENSION}`)
+    const targetFolderPath = normalizeFolderPath(payload?.folder_path)
+    const targetFolder = resolveFolderAbsolutePath(folder, targetFolderPath)
+    await ensureDocumentsFolderExists(fs, targetFolder)
+
+    const title = await resolveUniqueTitle(fs, folder, targetFolderPath, payload?.title)
+    const path = joinPath(targetFolder, `${title}${MARKDOWN_EXTENSION}`)
 
     // Create proper empty Tiptap document structure (matches document-editor.tsx line 29)
     const emptyTiptapDoc = {
@@ -1149,7 +1320,7 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
     }
 
     await writeStoredDocument(fs, path, record)
-    const document = mapStoredRecordToDocument(record)
+    const document = mapStoredRecordToDocument(record, targetFolderPath)
 
     try {
       await upsertCachedDocument(folder, document)
@@ -1183,7 +1354,7 @@ export async function fetchDocument(id: string): Promise<Document> {
       await writeStoredDocument(fs, file.path, readResult.record)
     }
 
-    return mapStoredRecordToDocument(readResult.record)
+    return mapStoredRecordToDocument(readResult.record, file.relativeFolderPath)
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Failed to fetch document: ${error.message}`)
@@ -1203,10 +1374,25 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
 
     const readResult = await readStoredDocumentFromFile(fs, file, { fallbackId: id })
     const existing = readResult.record
-    const nextTitle = payload.title !== undefined
-      ? await resolveUniqueTitle(fs, folder, payload.title, { excludePath: file.path })
+    const currentFolderPath = normalizeFolderPath(file.relativeFolderPath)
+    const nextFolderPath = payload.folder_path !== undefined
+      ? normalizeFolderPath(payload.folder_path)
+      : currentFolderPath
+    const shouldResolveTitle = payload.title !== undefined || nextFolderPath !== currentFolderPath
+    const nextTitle = shouldResolveTitle
+      ? await resolveUniqueTitle(
+        fs,
+        folder,
+        nextFolderPath,
+        payload.title ?? existing.title,
+        nextFolderPath === currentFolderPath
+          ? { excludePath: file.path }
+          : undefined,
+      )
       : existing.title
-    const nextPath = joinPath(folder, `${nextTitle}${MARKDOWN_EXTENSION}`)
+    const nextFolder = resolveFolderAbsolutePath(folder, nextFolderPath)
+    await ensureDocumentsFolderExists(fs, nextFolder)
+    const nextPath = joinPath(nextFolder, `${nextTitle}${MARKDOWN_EXTENSION}`)
 
     const updatedRecord: StoredDocumentRecord = {
       metadata: {
@@ -1231,7 +1417,7 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
     }
 
     await writeStoredDocument(fs, nextPath, updatedRecord)
-    const document = mapStoredRecordToDocument(updatedRecord)
+    const document = mapStoredRecordToDocument(updatedRecord, nextFolderPath)
 
     try {
       await upsertCachedDocument(folder, document)
