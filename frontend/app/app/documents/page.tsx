@@ -497,7 +497,7 @@ function DocumentDetailContent() {
         <div className="mb-4">
           <div className="flex items-center gap-1.5">
             <div
-              className="flex-1 min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center border border-gray-200 rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 cursor-text transition-all"
+              className="flex-1 min-h-[38px] px-2 py-1.5 flex flex-wrap gap-1.5 items-center rounded-lg bg-gray-50/60 focus-within:bg-white focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 cursor-text transition-all"
               onClick={() => tagInputRef.current?.focus()}
             >
               {tags.map((tag) => (
