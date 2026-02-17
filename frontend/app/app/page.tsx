@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import Image from 'next/image'
 import { DocumentGrid } from '@/components/documents/document-grid'
 import { SettingsModal } from '@/components/settings/settings-modal'
 import { useDebounce } from '@/hooks/use-debounce'
@@ -72,7 +73,14 @@ export default function DashboardPage() {
     <div className="h-full flex flex-col bg-white">
       <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">Tentacle</h1>
+          <Image
+            src="/tentacle-spiral.png"
+            alt="Tentacle logo"
+            width={40}
+            height={40}
+            priority
+            className="h-10 w-10"
+          />
           <button
             type="button"
             onClick={() => setIsSettingsOpen(true)}
@@ -100,7 +108,6 @@ export default function DashboardPage() {
 
       <main className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full max-w-7xl flex-col px-4 py-8 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Documents</h2>
           <div className="mb-4">
             <label htmlFor="documents-search" className="sr-only">
               Search documents
@@ -112,7 +119,7 @@ export default function DashboardPage() {
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search documents"
               autoComplete="off"
-              className="w-full h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              className="w-full h-14 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             />
           </div>
           <div className="min-h-0 flex-1">
