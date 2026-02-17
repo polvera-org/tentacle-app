@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth/auth-context";
 import { AppToaster } from "@/components/ui/app-toaster";
 import { EmbeddingModelStartupGate } from "@/components/providers/embedding-model-startup-gate";
+import { AppNotificationsProvider } from "@/components/providers/app-notifications-provider";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -40,10 +41,12 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased bg-white text-gray-900 h-full">
         <AuthProvider>
-          <EmbeddingModelStartupGate>
-            {children}
-            <AppToaster />
-          </EmbeddingModelStartupGate>
+          <AppNotificationsProvider>
+            <EmbeddingModelStartupGate>
+              {children}
+              <AppToaster />
+            </EmbeddingModelStartupGate>
+          </AppNotificationsProvider>
         </AuthProvider>
       </body>
     </html>

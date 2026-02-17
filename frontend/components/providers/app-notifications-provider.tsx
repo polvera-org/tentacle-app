@@ -13,6 +13,7 @@ import {
 import { useAuth } from '@/lib/auth/auth-context'
 import { fetchLatestUpdateNotification } from '@/lib/notifications/api'
 import { getLocalAppVersion } from '@/lib/notifications/version'
+import { UpdateNotificationPopup } from '@/components/notifications/update-notification-popup'
 
 type ActiveUpdateNotification = NonNullable<
   Awaited<ReturnType<typeof fetchLatestUpdateNotification>>
@@ -199,6 +200,12 @@ export function AppNotificationsProvider({ children }: AppNotificationsProviderP
   return (
     <AppNotificationsContext.Provider value={contextValue}>
       {children}
+      {activeUpdateNotification ? (
+        <UpdateNotificationPopup
+          notification={activeUpdateNotification}
+          onDismiss={dismissActiveUpdateNotification}
+        />
+      ) : null}
     </AppNotificationsContext.Provider>
   )
 }
