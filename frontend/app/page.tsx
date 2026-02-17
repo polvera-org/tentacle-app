@@ -1,7 +1,36 @@
-import Link from "next/link";
+'use client'
+
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { useAuth } from "@/lib/auth/auth-context";
+
+function LandingPlaceholder() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-white">
+      <main className="flex flex-col items-center gap-4 px-8 text-center">
+        <div className="h-24 w-24 rounded-full bg-zinc-100" aria-hidden="true" />
+        <p className="text-sm text-zinc-500">Loading...</p>
+      </main>
+    </div>
+  );
+}
 
 export default function Home() {
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && user) {
+      router.replace('/app');
+    }
+  }, [isLoading, router, user]);
+
+  if (isLoading || user) {
+    return <LandingPlaceholder />;
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-white">
       <main className="flex flex-col items-center gap-8 px-8 text-center">
