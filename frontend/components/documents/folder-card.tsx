@@ -68,11 +68,7 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
         <span className="sr-only">Open folder {folder.name}</span>
       </button>
 
-      <div className="pointer-events-none relative z-10 flex h-full items-start justify-between gap-3 p-4">
-        <div className="min-w-0 pt-0.5">
-          <p className="truncate text-sm font-semibold leading-5 text-gray-900">{folder.name}</p>
-          <p className="mt-1.5 text-xs leading-5 text-gray-500">{formatFolderMeta(folder)}</p>
-        </div>
+      <div className="pointer-events-none relative z-10 flex h-full flex-col justify-between p-4 pr-14">
         <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 shadow-sm">
           <svg
             aria-hidden="true"
@@ -87,6 +83,10 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
             <path d="M3.75 8.25A2.25 2.25 0 0 1 6 6h4.25a2.25 2.25 0 0 1 1.59.66l1.16 1.16a2.25 2.25 0 0 0 1.59.66H18A2.25 2.25 0 0 1 20.25 10.73v6.52A2.25 2.25 0 0 1 18 19.5H6a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
           </svg>
         </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold leading-5 text-gray-900">{folder.name}</p>
+          <p className="mt-1.5 text-xs leading-5 text-gray-500">{formatFolderMeta(folder)}</p>
+        </div>
       </div>
 
       <div ref={menuContainerRef} className="absolute right-3 top-3 z-20">
@@ -99,7 +99,7 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
           aria-haspopup="menu"
           aria-expanded={isMenuOpen}
           aria-label={`Folder actions for ${folder.name}`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
         >
           <svg
             aria-hidden="true"

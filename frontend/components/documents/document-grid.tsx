@@ -390,7 +390,7 @@ export function DocumentGrid({
 
   const filteredDocuments = useMemo(() => {
     const searchableDocuments = normalizedSearchQuery.length === 0
-      ? visibleDocuments
+      ? (selectedTags.length === 0 ? visibleDocuments : subtreeDocuments)
       : (searchRankedDocuments ?? [])
 
     if (selectedTags.length === 0) {
@@ -399,7 +399,7 @@ export function DocumentGrid({
 
     const selectedTagSet = new Set(selectedTags)
     return searchableDocuments.filter((document) => document.tags.some((tag) => selectedTagSet.has(tag)))
-  }, [normalizedSearchQuery, searchRankedDocuments, selectedTags, visibleDocuments])
+  }, [normalizedSearchQuery, searchRankedDocuments, selectedTags, subtreeDocuments, visibleDocuments])
 
   const loadDocuments = useCallback(async () => {
     const requestId = requestIdRef.current + 1
@@ -878,6 +878,13 @@ export function DocumentGrid({
       ? `Delete folder "${folderToDelete.name}" and all of its notes/subfolders? This cannot be undone.`
       : `Delete folder "${folderToDelete.name}"?`
     : ''
+  const shouldShowFolders = normalizedSearchQuery.length === 0 && selectedTags.length === 0
+  const visibleFolderCount = shouldShowFolders ? visibleChildFolders.length : 0
+  const emptyStateMessage = normalizedSearchQuery.length > 0
+    ? 'No notes match your search in this folder and its subfolders.'
+    : selectedTags.length > 0
+      ? 'No notes match the selected tags in this folder and its subfolders.'
+      : 'Empty folder. Right-click or long-press to create a note or folder.'
 
   return (
     <div className="space-y-3">
@@ -920,7 +927,7 @@ export function DocumentGrid({
         onTouchEnd={handleGridTouchEnd}
         onTouchCancel={handleGridTouchEnd}
       >
-        {visibleChildFolders.length > 0 ? (
+        {shouldShowFolders && visibleChildFolders.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             {visibleChildFolders.map((folder) => (
               <FolderCard
@@ -946,9 +953,9 @@ export function DocumentGrid({
           ))}
         </div>
 
-        {visibleChildFolders.length === 0 && filteredDocuments.length === 0 ? (
+        {visibleFolderCount === 0 && filteredDocuments.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500">
-            Empty folder. Right-click or long-press to create a note or folder.
+            {emptyStateMessage}
           </p>
         ) : null}
       </div>
