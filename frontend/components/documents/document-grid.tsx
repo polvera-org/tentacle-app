@@ -367,20 +367,20 @@ export function DocumentGrid({
     return documents.filter((document) => isPathWithinFolder(document.folder_path, currentFolderPath))
   }, [currentFolderPath, documents])
 
-  const visibleDocumentTags = useMemo(() => {
-    if (visibleDocuments.length === 0) {
-      return []
-    }
-
-    const visibleTagSet = new Set<string>()
-    for (const document of visibleDocuments) {
+  const subtreeTagSet = useMemo(() => {
+    const nextTagSet = new Set<string>()
+    for (const document of subtreeDocuments) {
       for (const tag of document.tags) {
-        visibleTagSet.add(tag)
+        nextTagSet.add(tag)
       }
     }
 
-    return documentTags.filter(({ tag }) => visibleTagSet.has(tag))
-  }, [documentTags, visibleDocuments])
+    return nextTagSet
+  }, [subtreeDocuments])
+
+  const visibleDocumentTags = useMemo(() => {
+    return documentTags.filter(({ tag }) => subtreeTagSet.has(tag))
+  }, [documentTags, subtreeTagSet])
 
   const visibleChildFolders = useMemo(() => {
     return documentFolders.filter((folder) => {
@@ -835,6 +835,13 @@ export function DocumentGrid({
       }
     })()
   }, [normalizedSearchQuery, subtreeDocuments])
+
+  useEffect(() => {
+    setSelectedTags((currentSelectedTags) => {
+      const nextSelectedTags = currentSelectedTags.filter((tag) => subtreeTagSet.has(tag))
+      return nextSelectedTags.length === currentSelectedTags.length ? currentSelectedTags : nextSelectedTags
+    })
+  }, [subtreeTagSet])
 
   useEffect(() => {
     const handleDocumentsFolderChanged = () => {
