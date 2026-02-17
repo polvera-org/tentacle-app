@@ -906,9 +906,9 @@ export function DocumentGrid({
           ref={newButtonRef}
           type="button"
           onClick={handleOpenCreateMenuFromButton}
-          className="inline-flex h-11 items-center gap-1.5 rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+          className="inline-flex cursor-pointer h-10 items-center gap-1 rounded-full border border-brand-600 bg-brand-600 px-4 text-sm font-bold text-white transition-all hover:bg-brand-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
         >
-          <Plus aria-hidden="true" className="h-4 w-4" />
+          <Plus aria-hidden="true" className="h-4 w-4 font-bold" />
           NEW
         </button>
       </div>
@@ -929,30 +929,40 @@ export function DocumentGrid({
         onTouchEnd={handleGridTouchEnd}
         onTouchCancel={handleGridTouchEnd}
       >
-        {shouldShowFolders && visibleChildFolders.length > 0 ? (
+        <div>
+          <div className="text-sm text-gray-400 mb-1">
+            {visibleChildFolders.length} folder{visibleChildFolders.length === 1 ? '' : 's'}
+          </div>
+          {shouldShowFolders && visibleChildFolders.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+              {visibleChildFolders.map((folder) => (
+                <FolderCard
+                  key={folder.path || 'root'}
+                  folder={folder}
+                  onOpen={handleOpenFolder}
+                  onRename={handleRenameFolderRequest}
+                  onDelete={handleDeleteFolderRequest}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div>
+          <div className="text-sm text-gray-400 mb-1">
+            {visibleDocuments.length} doc{visibleDocuments.length === 1 ? '' : 's'}
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {visibleChildFolders.map((folder) => (
-              <FolderCard
-                key={folder.path || 'root'}
-                folder={folder}
-                onOpen={handleOpenFolder}
-                onRename={handleRenameFolderRequest}
-                onDelete={handleDeleteFolderRequest}
+            {filteredDocuments.map((doc) => (
+              <DocumentCard
+                key={doc.id}
+                document={doc}
+                onOpen={handleOpenDocument}
+                onMove={handleMoveDocumentRequest}
+                onDelete={handleDeleteDocumentRequest}
               />
             ))}
           </div>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-          {filteredDocuments.map((doc) => (
-            <DocumentCard
-              key={doc.id}
-              document={doc}
-              onOpen={handleOpenDocument}
-              onMove={handleMoveDocumentRequest}
-              onDelete={handleDeleteDocumentRequest}
-            />
-          ))}
         </div>
 
         {visibleFolderCount === 0 && filteredDocuments.length === 0 ? (
