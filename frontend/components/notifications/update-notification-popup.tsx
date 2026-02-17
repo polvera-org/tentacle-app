@@ -18,9 +18,11 @@ export function UpdateNotificationPopup({
   notification,
   onDismiss,
 }: UpdateNotificationPopupProps) {
+  const downloadPageUrl = `${process.env.NEXT_PUBLIC_WEBSITE_URL?.replace(/\/$/, '') ?? ''}/download`
+
   const message = notification.message?.trim().length
     ? notification.message
-    : 'A new app update is ready. Restart when convenient to apply it.'
+    : 'A new app update is ready. Please download and install it when convenient.'
 
   return (
     <div className="pointer-events-none fixed inset-x-4 z-40 bottom-[calc(env(safe-area-inset-bottom)+1rem)] sm:inset-x-auto sm:left-4 sm:w-[22rem]">
@@ -39,16 +41,14 @@ export function UpdateNotificationPopup({
             <p className="mt-2 text-xs font-medium text-zinc-700">
               Target version: <span className="font-mono">{notification.version_id}</span>
             </p>
-            {notification.release_url ? (
-              <a
-                href={notification.release_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-flex min-h-11 items-center text-sm font-medium text-zinc-900 underline underline-offset-2 hover:text-zinc-700"
-              >
-                View update details
-              </a>
-            ) : null}
+            <a
+              href={downloadPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-zinc-900 px-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+            >
+              Download update
+            </a>
           </div>
           <button
             type="button"
