@@ -127,7 +127,7 @@ export function DocumentTagFilters({
         )
       })}
 
-      <div className="relative">
+      <div className="relative z-40">
         <button
           type="button"
           onClick={toggleMore}
@@ -149,7 +149,7 @@ export function DocumentTagFilters({
           <div
             role="dialog"
             aria-label="More tags"
-            className="absolute right-0 top-[calc(100%+0.4rem)] z-20 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-2"
+            className="absolute right-0 top-[calc(100%+0.4rem)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-2"
           >
             <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
               <input
