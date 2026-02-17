@@ -114,7 +114,7 @@ export function GridCreateMenu({
         onClick={onCreateNote}
         className="flex h-10 w-full items-center rounded-lg px-3 text-sm text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
       >
-        Create note
+        Create document
       </button>
       <button
         type="button"

@@ -10,6 +10,7 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from 'react'
 import { useRouter } from 'next/navigation'
+import { Plus } from 'lucide-react'
 import {
   createDocument,
   createFolder,
@@ -884,10 +885,10 @@ export function DocumentGrid({
     ? 'No notes match your search in this folder and its subfolders.'
     : selectedTags.length > 0
       ? 'No notes match the selected tags in this folder and its subfolders.'
-      : 'Empty folder. Right-click or long-press to create a note or folder.'
+      : 'Empty folder. Right-click or long-press to create a document or folder.'
 
   return (
-    <div className="space-y-3">
+    <div className="flex h-full min-h-0 flex-col space-y-3">
       {isSynchronizing ? (
         <p className="text-sm text-gray-500" role="status" aria-live="polite">
           Synchronizing...
@@ -905,9 +906,10 @@ export function DocumentGrid({
           ref={newButtonRef}
           type="button"
           onClick={handleOpenCreateMenuFromButton}
-          className="inline-flex h-11 items-center rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
+          className="inline-flex h-11 items-center gap-1.5 rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300"
         >
-          New
+          <Plus aria-hidden="true" className="h-4 w-4" />
+          NEW
         </button>
       </div>
 
@@ -920,7 +922,7 @@ export function DocumentGrid({
       />
 
       <div
-        className="space-y-4"
+        className="flex min-h-[18rem] flex-1 flex-col space-y-4"
         onContextMenu={handleGridContextMenu}
         onTouchStart={handleGridTouchStart}
         onTouchMove={handleGridTouchMove}

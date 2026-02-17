@@ -98,8 +98,8 @@ export default function DashboardPage() {
 
       <SettingsModal open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 min-h-0 overflow-y-auto">
+        <div className="mx-auto flex min-h-full max-w-7xl flex-col px-4 py-8 sm:px-6 lg:px-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Documents</h2>
           <div className="mb-4">
             <label htmlFor="documents-search" className="sr-only">
@@ -115,11 +115,13 @@ export default function DashboardPage() {
               className="w-full h-11 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
             />
           </div>
-          <DocumentGrid
-            searchQuery={debouncedSearchQuery}
-            initialFolderPath={currentFolderPath}
-            onFolderPathChange={handleFolderPathChange}
-          />
+          <div className="min-h-0 flex-1">
+            <DocumentGrid
+              searchQuery={debouncedSearchQuery}
+              initialFolderPath={currentFolderPath}
+              onFolderPathChange={handleFolderPathChange}
+            />
+          </div>
         </div>
       </main>
     </div>
