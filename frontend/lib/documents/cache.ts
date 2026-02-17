@@ -7,7 +7,6 @@ interface CachedDocumentPayload {
   title: string
   body: string
   folder_path: string
-  banner_image_url: string | null
   deleted_at: string | null
   created_at: string
   updated_at: string
@@ -144,7 +143,6 @@ function toCachedDocumentPayloadFromDocument(document: Document): CachedDocument
     title: normalizeString(document.title, DEFAULT_TITLE),
     body: normalizeString(document.body),
     folder_path: normalizeFolderPath(document.folder_path),
-    banner_image_url: normalizeNullableString(document.banner_image_url),
     deleted_at: normalizeNullableString(document.deleted_at),
     created_at: createdAt,
     updated_at: normalizeTimestamp(document.updated_at, createdAt),
@@ -161,7 +159,6 @@ function toCachedDocumentPayloadFromListItem(document: DocumentListItem): Cached
     title: normalizeString(document.title, DEFAULT_TITLE),
     body: normalizeString(document.body),
     folder_path: normalizeFolderPath(document.folder_path),
-    banner_image_url: normalizeNullableString(document.banner_image_url),
     deleted_at: null,
     created_at: createdAt,
     updated_at: normalizeTimestamp(document.updated_at, createdAt),
@@ -188,7 +185,6 @@ function toDocumentListItem(payload: unknown): DocumentListItem | null {
     title: normalizeString(cached.title, DEFAULT_TITLE),
     body: normalizeString(cached.body),
     folder_path: normalizeFolderPath(cached.folder_path),
-    banner_image_url: normalizeNullableString(cached.banner_image_url),
     created_at: createdAt,
     updated_at: updatedAt,
     tags: normalizeTags(cached.tags),

@@ -53,7 +53,6 @@ interface MarkdownFrontmatter {
   id: string
   created_at: string
   updated_at: string
-  banner_image_url: string | null
   tags: string[]
   tags_locked?: boolean
 }
@@ -453,11 +452,6 @@ function parseFrontmatter(fileContent: string): { metadata: Partial<MarkdownFron
       continue
     }
 
-    if (key === 'banner_image_url') {
-      metadata.banner_image_url = typeof value === 'string' ? value : null
-      continue
-    }
-
     if (key === 'tags') {
       metadata.tags = parseTagsFrontmatterValue(rawValue)
       continue
@@ -500,9 +494,6 @@ function extractMarkdownBody(markdown: string, fileNameTitle: string): string {
 }
 
 function serializeFrontmatter(metadata: MarkdownFrontmatter): string {
-  const bannerValue = metadata.banner_image_url === null
-    ? 'null'
-    : `"${escapeYamlString(metadata.banner_image_url)}"`
   const tagsValue = JSON.stringify(normalizeTags(metadata.tags))
 
   return [
@@ -510,7 +501,6 @@ function serializeFrontmatter(metadata: MarkdownFrontmatter): string {
     `id: "${escapeYamlString(metadata.id)}"`,
     `created_at: "${escapeYamlString(metadata.created_at)}"`,
     `updated_at: "${escapeYamlString(metadata.updated_at)}"`,
-    `banner_image_url: ${bannerValue}`,
     `tags: ${tagsValue}`,
     `tags_locked: ${metadata.tags_locked === true ? 'true' : 'false'}`,
     '---',
@@ -876,7 +866,6 @@ function mapStoredRecordToDocument(record: StoredDocumentRecord, relativeFolderP
     folder_path: normalizeFolderPath(relativeFolderPath),
     tags: normalizeTags(record.metadata.tags),
     tags_locked: record.metadata.tags_locked ?? false,
-    banner_image_url: record.metadata.banner_image_url,
     deleted_at: null,
     created_at: record.metadata.created_at,
     updated_at: record.metadata.updated_at,
@@ -891,7 +880,6 @@ function mapDocumentToListItem(document: Document): DocumentListItem {
     folder_path: normalizeFolderPath(document.folder_path),
     tags: document.tags,
     tags_locked: document.tags_locked,
-    banner_image_url: document.banner_image_url,
     created_at: document.created_at,
     updated_at: document.updated_at,
   }
@@ -1044,7 +1032,6 @@ async function readStoredDocumentFromFile(
     id: finalId,
     created_at: createdAtResolution.value,
     updated_at: updatedAtResolution.value,
-    banner_image_url: parsedMetadata.banner_image_url ?? null,
     tags: normalizeTags(parsedMetadata.tags ?? []),
     tags_locked: parsedMetadata.tags_locked ?? false,
   }
@@ -1312,7 +1299,6 @@ export async function createDocument(payload?: CreateDocumentPayload): Promise<D
         id,
         created_at: timestamp,
         updated_at: timestamp,
-        banner_image_url: null,
         tags: normalizeTags(payload?.tags ?? []),
       },
       title,
@@ -1398,9 +1384,6 @@ export async function updateDocument(id: string, payload: UpdateDocumentPayload)
       metadata: {
         ...existing.metadata,
         updated_at: nowIsoString(),
-        banner_image_url: payload.banner_image_url !== undefined
-          ? payload.banner_image_url
-          : existing.metadata.banner_image_url,
         tags: payload.tags !== undefined
           ? normalizeTags(payload.tags)
           : existing.metadata.tags,

@@ -124,7 +124,6 @@ function mapDocumentToListItem(document: Document): DocumentListItem {
     folder_path: normalizeFolderPath(document.folder_path),
     tags: document.tags ?? [],
     tags_locked: document.tags_locked,
-    banner_image_url: document.banner_image_url,
     created_at: document.created_at,
     updated_at: document.updated_at,
   }

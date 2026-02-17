@@ -6,7 +6,6 @@ export interface Document {
   folder_path: string
   tags: string[]
   tags_locked?: boolean
-  banner_image_url: string | null
   deleted_at: string | null
   created_at: string
   updated_at: string
@@ -26,7 +25,6 @@ export interface DocumentListItem {
   folder_path: string
   tags: string[]
   tags_locked?: boolean
-  banner_image_url: string | null
   created_at: string
   updated_at: string
 }
@@ -92,5 +90,4 @@ export interface UpdateDocumentPayload {
   folder_path?: string
   tags?: string[]
   tags_locked?: boolean
-  banner_image_url?: string | null
 }
