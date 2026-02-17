@@ -69,22 +69,22 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
       </button>
 
       <div className="pointer-events-none relative z-10 flex h-full items-start justify-between gap-3 p-4">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-gray-900">{folder.name}</p>
-          <p className="mt-1 text-xs text-gray-500">{formatFolderMeta(folder)}</p>
+        <div className="min-w-0 pt-0.5">
+          <p className="truncate text-sm font-semibold leading-5 text-gray-900">{folder.name}</p>
+          <p className="mt-1.5 text-xs leading-5 text-gray-500">{formatFolderMeta(folder)}</p>
         </div>
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-500">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 shadow-sm">
           <svg
             aria-hidden="true"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.6"
+            strokeWidth="1.7"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="h-4 w-4"
+            className="h-5 w-5"
           >
-            <path d="M3.75 7.5A2.25 2.25 0 0 1 6 5.25h4.044a2.25 2.25 0 0 1 1.591.659l1.06 1.06a2.25 2.25 0 0 0 1.591.659H18A2.25 2.25 0 0 1 20.25 9.9v7.35A2.25 2.25 0 0 1 18 19.5H6a2.25 2.25 0 0 1-2.25-2.25V7.5Z" />
+            <path d="M3.75 8.25A2.25 2.25 0 0 1 6 6h4.25a2.25 2.25 0 0 1 1.59.66l1.16 1.16a2.25 2.25 0 0 0 1.59.66H18A2.25 2.25 0 0 1 20.25 10.73v6.52A2.25 2.25 0 0 1 18 19.5H6a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
           </svg>
         </span>
       </div>

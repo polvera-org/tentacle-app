@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Image from 'next/image'
 import type { DocumentListItem } from '@/types/documents'
 
 interface DocumentCardProps {
@@ -77,7 +76,7 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
   return (
     <article
       data-grid-item="true"
-      className="relative h-48 overflow-hidden rounded-2xl border border-gray-200 transition-all hover:border-gray-300 hover:shadow-md"
+      className="relative h-48 overflow-hidden rounded-2xl border border-gray-200 bg-white transition-all hover:border-gray-300 hover:shadow-md"
     >
       <button
         type="button"
@@ -87,25 +86,15 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
         <span className="sr-only">Open note {doc.title || 'Untitled'}</span>
       </button>
 
-      {doc.banner_image_url ? (
-        <div className="pointer-events-none h-20 overflow-hidden bg-gray-100">
-          <Image
-            src={doc.banner_image_url}
-            alt=""
-            width={640}
-            height={160}
-            unoptimized
-            className="w-full h-full object-cover"
-          />
-        </div>
-      ) : (
-        <div className="pointer-events-none flex h-20 items-center justify-center bg-gray-50">
+      <div className="pointer-events-none border-b border-gray-100 bg-gray-50/70 px-4 py-3">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 shadow-sm">
           <svg
-            className="w-8 h-8 text-gray-300"
+            className="h-5 w-5"
             fill="none"
             viewBox="0 0 24 24"
-            strokeWidth={1.5}
+            strokeWidth={1.7}
             stroke="currentColor"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -113,21 +102,21 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
               d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
             />
           </svg>
-        </div>
-      )}
+        </span>
+      </div>
 
       <div className="pointer-events-none relative z-10 p-4">
-        <h3 className="truncate text-sm font-semibold text-gray-900">
+        <h3 className="truncate text-sm font-semibold leading-5 text-gray-900">
           {doc.title || 'Untitled'}
         </h3>
-        <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-gray-500">
           {bodyPreview || 'Empty document'}
         </p>
         {visibleTags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             {visibleTags.map((tag) => (
               <span
-            key={tag}
+                key={tag}
                 className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600"
               >
                 #{tag}
