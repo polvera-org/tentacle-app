@@ -359,6 +359,14 @@ export function DocumentGrid({
     return documents.filter((document) => normalizeFolderPath(document.folder_path) === currentFolderPath)
   }, [currentFolderPath, documents])
 
+  const subtreeDocuments = useMemo(() => {
+    if (currentFolderPath.length === 0) {
+      return documents
+    }
+
+    return documents.filter((document) => isPathWithinFolder(document.folder_path, currentFolderPath))
+  }, [currentFolderPath, documents])
+
   const visibleDocumentTags = useMemo(() => {
     if (visibleDocuments.length === 0) {
       return []
@@ -800,12 +808,14 @@ export function DocumentGrid({
 
     void (async () => {
       try {
-        const hits = await semanticSearchDocuments(normalizedSearchQuery)
+        const hits = await semanticSearchDocuments(normalizedSearchQuery, {
+          limit: Math.max(20, subtreeDocuments.length),
+        })
         if (currentRequestId !== searchRequestIdRef.current) {
           return
         }
 
-        const documentLookup = new Map(visibleDocuments.map((document) => [document.id, document]))
+        const documentLookup = new Map(subtreeDocuments.map((document) => [document.id, document]))
         const rankedDocuments: DocumentListItem[] = []
         for (const hit of hits) {
           const matchedDocument = documentLookup.get(hit.document_id)
@@ -821,10 +831,10 @@ export function DocumentGrid({
           return
         }
 
-        setSearchRankedDocuments(fallbackSearchDocuments(normalizedSearchQuery, visibleDocuments))
+        setSearchRankedDocuments(fallbackSearchDocuments(normalizedSearchQuery, subtreeDocuments))
       }
     })()
-  }, [normalizedSearchQuery, visibleDocuments])
+  }, [normalizedSearchQuery, subtreeDocuments])
 
   useEffect(() => {
     const handleDocumentsFolderChanged = () => {
