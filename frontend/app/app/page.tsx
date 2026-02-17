@@ -7,6 +7,7 @@ import { DocumentGrid } from '@/components/documents/document-grid'
 import { SettingsModal } from '@/components/settings/settings-modal'
 import { MyAccountModal } from '@/components/account/my-account-modal'
 import { useDebounce } from '@/hooks/use-debounce'
+import { useAuth } from '@/lib/auth/auth-context'
 
 function normalizeFolderPath(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -40,6 +41,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { user, isLoading } = useAuth()
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isAccountOpen, setIsAccountOpen] = useState(false)
@@ -106,7 +108,13 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => setIsAccountOpen(true)}
+              onClick={() => {
+                if (!isLoading && !user) {
+                  router.push('/login?returnUrl=/app')
+                  return
+                }
+                setIsAccountOpen(true)
+              }}
               aria-label="Open my account"
               className="h-11 w-11 inline-flex items-center justify-center text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white"
             >

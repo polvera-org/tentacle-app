@@ -25,7 +25,7 @@ function getMetadataFullName(value: unknown): string {
 }
 
 export function MyAccountModal({ open, onClose }: MyAccountModalProps) {
-  const { user, isLoading } = useAuth()
+  const { user, isLoading, signOut } = useAuth()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const [fullName, setFullName] = useState('')
   const [isProfileLoading, setIsProfileLoading] = useState(false)
@@ -80,7 +80,7 @@ export function MyAccountModal({ open, onClose }: MyAccountModalProps) {
     return () => {
       disposed = true
     }
-  }, [open, user])
+  }, [open, user?.id])
 
   async function handleSave() {
     if (!user) {
@@ -114,6 +114,11 @@ export function MyAccountModal({ open, onClose }: MyAccountModalProps) {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  async function handleLogout() {
+    await signOut()
+    onClose()
   }
 
   if (!open) return null
@@ -210,22 +215,33 @@ export function MyAccountModal({ open, onClose }: MyAccountModalProps) {
           )}
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-gray-200 p-6">
-          <button
-            ref={closeButtonRef}
-            onClick={onClose}
-            disabled={isSaving}
-            className="h-11 rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
-          >
-            Close
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={disableForm}
-            className="h-11 rounded-full bg-brand-600 px-4 text-sm font-medium text-white transition-all hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
+        <div className="flex items-center justify-between gap-3 border-t border-gray-200 p-6">
+          {user && (
+            <button
+              onClick={() => void handleLogout()}
+              disabled={isSaving}
+              className="h-11 rounded-full border border-red-300 bg-white px-4 text-sm font-medium text-red-600 transition-all hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              Logout
+            </button>
+          )}
+          <div className="flex gap-3 ml-auto">
+            <button
+              ref={closeButtonRef}
+              onClick={onClose}
+              disabled={isSaving}
+              className="h-11 rounded-full border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              Close
+            </button>
+            <button
+              onClick={() => void handleSave()}
+              disabled={disableForm}
+              className="h-11 rounded-full bg-brand-600 px-4 text-sm font-medium text-white transition-all hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
