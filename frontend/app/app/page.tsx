@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { DocumentGrid } from '@/components/documents/document-grid'
 import { SettingsModal } from '@/components/settings/settings-modal'
+import { MyAccountModal } from '@/components/account/my-account-modal'
 import { useDebounce } from '@/hooks/use-debounce'
 
 function normalizeFolderPath(value: string | null | undefined): string {
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const searchParams = useSearchParams()
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isAccountOpen, setIsAccountOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const debouncedSearchQuery = useDebounce(searchQuery, 400)
 
@@ -81,30 +83,53 @@ export default function DashboardPage() {
             priority
             className="h-10 w-10"
           />
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            aria-label="Open settings"
-            className="h-11 w-11 inline-flex items-center justify-center text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-5 w-5"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              aria-label="Open settings"
+              className="h-11 w-11 inline-flex items-center justify-center text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white"
             >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.66 1.66 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.66 1.66 0 0 0-1.82-.33 1.66 1.66 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.66 1.66 0 0 0-1-1.51 1.66 1.66 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.66 1.66 0 0 0 .33-1.82 1.66 1.66 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.66 1.66 0 0 0 1.51-1 1.66 1.66 0 0 0-.33-1.82L4.21 7.4a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.66 1.66 0 0 0 1.82.33H9a1.66 1.66 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.66 1.66 0 0 0 1 1.51 1.66 1.66 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.66 1.66 0 0 0-.33 1.82V9c0 .68.4 1.3 1.03 1.57.15.06.31.1.48.1H21a2 2 0 0 1 0 4h-.09a1.66 1.66 0 0 0-1.51 1z" />
-            </svg>
-          </button>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.66 1.66 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.66 1.66 0 0 0-1.82-.33 1.66 1.66 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.66 1.66 0 0 0-1-1.51 1.66 1.66 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.66 1.66 0 0 0 .33-1.82 1.66 1.66 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.66 1.66 0 0 0 1.51-1 1.66 1.66 0 0 0-.33-1.82L4.21 7.4a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.66 1.66 0 0 0 1.82.33H9a1.66 1.66 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.66 1.66 0 0 0 1 1.51 1.66 1.66 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.66 1.66 0 0 0-.33 1.82V9c0 .68.4 1.3 1.03 1.57.15.06.31.1.48.1H21a2 2 0 0 1 0 4h-.09a1.66 1.66 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAccountOpen(true)}
+              aria-label="Open my account"
+              className="h-11 w-11 inline-flex items-center justify-center text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-300 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-white"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <circle cx="12" cy="8" r="3.25" />
+                <path d="M5.5 19.25a6.5 6.5 0 0 1 13 0" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 
       <SettingsModal open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <MyAccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
 
       <main className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full max-w-7xl flex-col px-4 py-8 sm:px-6 lg:px-8">
