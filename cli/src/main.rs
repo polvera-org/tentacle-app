@@ -28,6 +28,7 @@ use crate::cli::{
     ReindexArgs, SearchArgs, TagArgs,
 };
 use crate::errors::{clap_exit_code, exit_code_for, summarize_clap_error, CliError};
+use crate::output::{format_bytes, humanize_datetime, normalize_iso8601, print_json};
 
 const KEY_EDITOR: &str = "editor";
 const KEY_DEFAULT_FOLDER: &str = "default_folder";
@@ -427,8 +428,9 @@ fn handle_config_set(key: &str, value: &str, json: bool) -> Result<(), CliError>
 
 fn handle_status(json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
-    let payload =
+    let mut payload =
         KnowledgeBaseService::status(&documents_folder).map_err(map_knowledge_base_error)?;
+    payload.last_indexed = payload.last_indexed.map(|value| normalize_iso8601(&value));
 
     if json {
         return print_json(&payload);
@@ -439,7 +441,11 @@ fn handle_status(json: bool) -> Result<(), CliError> {
     println!("Tags:         {}", payload.tags);
     println!(
         "Last Indexed: {}",
-        payload.last_indexed.as_deref().unwrap_or("never")
+        payload
+            .last_indexed
+            .as_deref()
+            .map(humanize_datetime)
+            .unwrap_or_else(|| "never".to_owned())
     );
     println!("Index Size:   {}", format_bytes(payload.index_size_bytes));
 
@@ -500,8 +506,8 @@ fn handle_list(args: &ListArgs, json: bool) -> Result<(), CliError> {
             title: document.title,
             folder: document.folder_path,
             tags: document.tags,
-            created_at: document.created_at,
-            modified_at: document.updated_at,
+            created_at: normalize_iso8601(&document.created_at),
+            modified_at: normalize_iso8601(&document.updated_at),
             size_bytes,
         });
     }
@@ -527,7 +533,7 @@ fn handle_list(args: &ListArgs, json: bool) -> Result<(), CliError> {
             truncate_display(&document.title, 30),
             truncate_display(&document.folder, 16),
             truncate_display(&document.tags.join(","), 24),
-            document.modified_at
+            humanize_datetime(&document.modified_at)
         );
     }
     println!("Showing {} of {}", payload.showing, payload.total);
@@ -634,7 +640,7 @@ fn handle_read(args: &ReadArgs, json: bool) -> Result<(), CliError> {
         println!("{}", "=".repeat(payload.title.len()));
         println!("Folder: {}", payload.folder);
         println!("Tags: {}", payload.tags.join(", "));
-        println!("Modified: {}", payload.modified_at);
+        println!("Modified: {}", humanize_datetime(&payload.modified_at));
         println!();
     }
     println!("{}", payload.content);
@@ -677,7 +683,7 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
         title: created.title,
         folder: created.folder_path,
         tags: created.tags,
-        created_at: created.created_at,
+        created_at: normalize_iso8601(&created.created_at),
     };
 
     if json {
@@ -1354,8 +1360,8 @@ fn map_document_to_read_payload(document: StoredDocument) -> ReadResponsePayload
         title: document.title,
         folder: document.folder_path,
         tags: document.tags,
-        created_at: document.created_at,
-        modified_at: document.updated_at,
+        created_at: normalize_iso8601(&document.created_at),
+        modified_at: normalize_iso8601(&document.updated_at),
         content: document.body,
         size_bytes,
     }
@@ -1397,29 +1403,6 @@ fn truncate_display(value: &str, max_chars: usize) -> String {
 
     let shortened = chars.into_iter().take(max_chars - 1).collect::<String>();
     format!("{shortened}.")
-}
-
-fn format_bytes(size_bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    if size_bytes < 1024 {
-        return format!("{size_bytes} B");
-    }
-
-    let mut value = size_bytes as f64;
-    let mut unit_index = 0usize;
-    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit_index += 1;
-    }
-    format!("{value:.1} {}", UNITS[unit_index])
-}
-
-fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
-    let output = serde_json::to_string_pretty(value).map_err(|error| CliError::General {
-        message: format!("failed to serialize JSON output: {error}"),
-    })?;
-    println!("{output}");
-    Ok(())
 }
 
 fn map_config_error(error: ConfigError) -> CliError {
