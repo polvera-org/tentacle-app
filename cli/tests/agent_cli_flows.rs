@@ -262,6 +262,22 @@ fn create_from_stdin_persists_document_content() {
 }
 
 #[test]
+fn create_folder_flag_is_not_persisted_between_commands() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    let first_create = env.run_json_success_with_stdin(
+        ["create", "--folder", "projects/alpha", "--title", "First"],
+        "First body.\n",
+    );
+    assert_eq!(first_create["folder"], "projects/alpha");
+
+    let second_create =
+        env.run_json_success_with_stdin(["create", "--title", "Second"], "Second body.\n");
+    assert_eq!(second_create["folder"], "");
+}
+
+#[test]
 fn tag_merge_remove_and_replace_flow() {
     let env = CliTestEnv::new();
     env.bootstrap();

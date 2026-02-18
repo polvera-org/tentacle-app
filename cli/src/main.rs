@@ -652,7 +652,7 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
     let config_store = open_config_store()?;
 
-    let folder = resolve_create_folder(args.folder.as_deref(), &config_store)?;
+    let folder = resolve_create_folder(args.folder.as_deref())?;
     let configured_editor = get_config_text_or_default(&config_store, ConfigKey::Editor)?;
     let explicit_title = normalize_optional_text(args.title.as_deref());
     let initial_editor_content = explicit_title
@@ -668,7 +668,7 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
         &CreateDocumentInput {
             title: explicit_title.or(inferred_title),
             body: Some(body),
-            folder_path: Some(folder),
+            folder_path: folder,
             tags,
             tags_locked: Some(false),
             id: None,
@@ -1048,20 +1048,12 @@ fn get_config_value(store: &ConfigStore, key: ConfigKey) -> Result<ConfigValuePa
     }
 }
 
-fn resolve_create_folder(
-    requested_folder: Option<&str>,
-    config_store: &ConfigStore,
-) -> Result<String, CliError> {
+fn resolve_create_folder(requested_folder: Option<&str>) -> Result<Option<String>, CliError> {
     if let Some(raw_folder) = requested_folder {
-        return require_folder_path(raw_folder, "folder");
+        return require_folder_path(raw_folder, "folder").map(Some);
     }
 
-    let configured_default = get_config_text_or_default(config_store, ConfigKey::DefaultFolder)?;
-    if let Some(normalized_default) = normalize_folder_filter(Some(&configured_default))? {
-        return Ok(normalized_default);
-    }
-
-    Ok(DEFAULT_FOLDER.to_owned())
+    Ok(None)
 }
 
 fn require_folder_path(raw_value: &str, argument_name: &str) -> Result<String, CliError> {
