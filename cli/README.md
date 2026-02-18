@@ -62,6 +62,17 @@ tentacle list --json | \
 - `--help`: command usage
 - `--version` / `-V`: CLI version
 
+## Auto-tagging on `create`
+
+- `tentacle create` can auto-tag new notes when `auto_tag=true` (default).
+- API key resolution order: `openai_api_key` in config DB, then `OPENAI_API_KEY` from env.
+- If auto-tagging cannot run (missing key, API failure, etc.), note creation still succeeds.
+- In `--json` mode, create responses include `auto_tagging` metadata with:
+  - `attempted`
+  - `applied_tags`
+  - `skipped_reason` (optional)
+  - `warning` (optional)
+
 ## Output contract (JSON)
 
 - Success payloads are command-specific and use `snake_case` fields.

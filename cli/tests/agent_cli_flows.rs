@@ -3,7 +3,11 @@ use predicates::str::contains;
 use serde_json::Value;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 use tempfile::{tempdir, TempDir};
 
 struct CliTestEnv {
@@ -47,6 +51,8 @@ impl CliTestEnv {
         command.env("HF_HOME", &self.hf_home_dir);
         command.env("HF_HUB_OFFLINE", "1");
         command.env("NO_COLOR", "1");
+        command.env_remove("OPENAI_API_KEY");
+        command.env_remove("TENTACLE_OPENAI_CHAT_COMPLETIONS_URL");
         command
     }
 
@@ -93,6 +99,39 @@ impl CliTestEnv {
         S: AsRef<OsStr>,
     {
         let mut command = self.command();
+        let output = command
+            .arg("--json")
+            .args(args)
+            .write_stdin(stdin)
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+
+        parse_json(
+            &output.stdout,
+            "stdout",
+            &output.stderr,
+            "stderr",
+            "expected success JSON payload",
+        )
+    }
+
+    fn run_json_success_with_stdin_and_env<I, S>(
+        &self,
+        args: I,
+        stdin: &str,
+        envs: &[(&str, &str)],
+    ) -> Value
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut command = self.command();
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+
         let output = command
             .arg("--json")
             .args(args)
@@ -165,6 +204,71 @@ fn json_string_array(payload: &Value, key: &str) -> Vec<String> {
                 .to_owned()
         })
         .collect()
+}
+
+struct MockOpenAiServer {
+    url: String,
+    join_handle: Option<thread::JoinHandle<()>>,
+}
+
+impl MockOpenAiServer {
+    fn spawn(status_code: u16, response_body: &str) -> Self {
+        let listener =
+            TcpListener::bind("127.0.0.1:0").expect("failed to bind mock OpenAI TCP listener");
+        let address = listener
+            .local_addr()
+            .expect("mock OpenAI listener missing local addr");
+        let body = response_body.to_owned();
+
+        let join_handle = thread::spawn(move || {
+            let _ = listener.set_nonblocking(false);
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let mut request_buffer = [0u8; 8192];
+            let _ = stream.read(&mut request_buffer);
+
+            let reason = reason_phrase(status_code);
+            let response = format!(
+                "HTTP/1.1 {status_code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.as_bytes().len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        });
+
+        Self {
+            url: format!("http://{address}/v1/chat/completions"),
+            join_handle: Some(join_handle),
+        }
+    }
+}
+
+impl Drop for MockOpenAiServer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.join_handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn reason_phrase(status_code: u16) -> &'static str {
+    match status_code {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => "Unknown",
+    }
 }
 
 #[test]
@@ -275,6 +379,111 @@ fn create_folder_flag_is_not_persisted_between_commands() {
     let second_create =
         env.run_json_success_with_stdin(["create", "--title", "Second"], "Second body.\n");
     assert_eq!(second_create["folder"], "");
+}
+
+#[test]
+fn create_auto_tagging_applies_tags_from_openai() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    env.write_markdown_fixture(
+        "projects/alpha/neighbor.md",
+        "neighbor",
+        "Neighbor",
+        &["planning", "infra"],
+        "Roadmap planning for infrastructure migrations and scope alignment.",
+    );
+    let _ = env.run_json_success(["reindex"]);
+
+    let server = MockOpenAiServer::spawn(
+        200,
+        r#"{"choices":[{"message":{"content":"[\"roadmap\",\"weekly-review\"]"}}]}"#,
+    );
+    let create_payload = env.run_json_success_with_stdin_and_env(
+        ["create", "--title", "AutoTag", "--tags", "draft"],
+        "Detailed roadmap planning for the next sprint and weekly review with infra.",
+        &[
+            ("OPENAI_API_KEY", "test-key"),
+            ("TENTACLE_OPENAI_CHAT_COMPLETIONS_URL", server.url.as_str()),
+        ],
+    );
+
+    let tags = json_string_array(&create_payload, "tags");
+    assert!(tags.iter().any(|tag| tag == "draft"));
+    assert!(tags.iter().any(|tag| tag == "roadmap"));
+    assert!(tags.iter().any(|tag| tag == "weekly-review"));
+
+    assert_eq!(create_payload["auto_tagging"]["attempted"], true);
+    assert_eq!(
+        create_payload["auto_tagging"]["skipped_reason"],
+        Value::Null
+    );
+    assert_eq!(create_payload["auto_tagging"]["warning"], Value::Null);
+    let applied_tags = json_string_array(&create_payload["auto_tagging"], "applied_tags");
+    assert!(applied_tags.iter().any(|tag| tag == "roadmap"));
+}
+
+#[test]
+fn create_auto_tagging_skips_when_api_key_is_missing() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    let create_payload = env.run_json_success_with_stdin(
+        ["create", "--title", "No key"],
+        "Long enough content to trigger auto-tagging but no key is configured in env or config.",
+    );
+
+    assert_eq!(create_payload["auto_tagging"]["attempted"], false);
+    assert_eq!(
+        create_payload["auto_tagging"]["skipped_reason"],
+        "missing_api_key"
+    );
+    assert_eq!(create_payload["auto_tagging"]["warning"], Value::Null);
+}
+
+#[test]
+fn create_auto_tagging_skips_when_feature_is_disabled() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    let set_payload = env.run_json_success(["config", "set", "auto_tag", "false"]);
+    assert_eq!(set_payload["status"], "updated");
+
+    let create_payload = env.run_json_success_with_stdin_and_env(
+        ["create", "--title", "Disabled"],
+        "Long enough content to trigger auto-tagging if it were enabled.",
+        &[("OPENAI_API_KEY", "test-key")],
+    );
+
+    assert_eq!(create_payload["auto_tagging"]["attempted"], false);
+    assert_eq!(create_payload["auto_tagging"]["skipped_reason"], "disabled");
+}
+
+#[test]
+fn create_auto_tagging_request_failure_is_non_fatal() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    let server = MockOpenAiServer::spawn(500, r#"{"error":{"message":"temporary outage"}}"#);
+    let create_payload = env.run_json_success_with_stdin_and_env(
+        ["create", "--title", "Failing request"],
+        "Long enough content to trigger auto-tagging and return an upstream API failure.",
+        &[
+            ("OPENAI_API_KEY", "test-key"),
+            ("TENTACLE_OPENAI_CHAT_COMPLETIONS_URL", server.url.as_str()),
+        ],
+    );
+
+    assert_eq!(create_payload["title"], "Failing request");
+    assert_eq!(create_payload["auto_tagging"]["attempted"], true);
+    assert_eq!(
+        create_payload["auto_tagging"]["skipped_reason"],
+        "request_failed"
+    );
+    assert!(create_payload["auto_tagging"]["warning"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("temporary outage"));
 }
 
 #[test]

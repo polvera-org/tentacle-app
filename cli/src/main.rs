@@ -1,3 +1,4 @@
+mod auto_tagging;
 mod cli;
 mod errors;
 mod output;
@@ -23,6 +24,7 @@ use tentacle_core::document_store::{
 };
 use tentacle_core::knowledge_base::{KnowledgeBaseError, KnowledgeBaseService, SearchOptions};
 
+use crate::auto_tagging::{apply_after_create, CreateAutoTaggingPayload};
 use crate::cli::{
     Cli, Commands, ConfigCommands, CreateArgs, FolderCommands, ListArgs, ListSort, ReadArgs,
     ReindexArgs, SearchArgs, TagArgs,
@@ -246,6 +248,8 @@ struct CreateResponsePayload {
     folder: String,
     tags: Vec<String>,
     created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_tagging: Option<CreateAutoTaggingPayload>,
 }
 
 #[derive(Debug, Serialize)]
@@ -676,6 +680,8 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
     )
     .map_err(map_document_store_error)?;
 
+    let auto_tagging_outcome = apply_after_create(&documents_folder, &config_store, created);
+    let created = auto_tagging_outcome.document;
     sync_cache_for_document_folder(&documents_folder, &created.folder_path)?;
 
     let payload = CreateResponsePayload {
@@ -684,6 +690,7 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
         folder: created.folder_path,
         tags: created.tags,
         created_at: normalize_iso8601(&created.created_at),
+        auto_tagging: Some(auto_tagging_outcome.payload),
     };
 
     if json {
@@ -697,6 +704,21 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
         println!("Tags: (none)");
     } else {
         println!("Tags: {}", payload.tags.join(", "));
+    }
+    if let Some(auto_tagging) = payload.auto_tagging.as_ref() {
+        if auto_tagging.applied_tags.is_empty() {
+            if let Some(reason) = auto_tagging.skipped_reason.as_deref() {
+                println!("Auto-tagging: skipped ({reason})");
+            } else {
+                println!("Auto-tagging: no new tags");
+            }
+        } else {
+            println!("Auto-tagging: {}", auto_tagging.applied_tags.join(", "));
+        }
+
+        if let Some(warning) = auto_tagging.warning.as_deref() {
+            eprintln!("warning: {warning}");
+        }
     }
 
     Ok(())
