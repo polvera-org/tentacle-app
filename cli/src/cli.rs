@@ -1,4 +1,4 @@
-use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -148,12 +148,12 @@ pub struct TagArgs {
 
 #[derive(Debug, Args)]
 pub struct EditArgs {
-    pub document_id: Option<String>,
+    pub document_id: String,
 }
 
 #[derive(Debug, Args)]
 pub struct ImportArgs {
-    pub source_path: Option<String>,
+    pub source_path: String,
 
     #[arg(long)]
     pub folder: Option<String>,
@@ -166,14 +166,19 @@ pub struct ImportArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("export_source")
+        .required(true)
+        .args(["document_id", "folder"])
+))]
 pub struct ExportArgs {
     #[arg(value_name = "DOCUMENT_ID")]
     pub document_id: Option<String>,
 
     #[arg(value_name = "DESTINATION_PATH")]
-    pub destination_path: Option<String>,
+    pub destination_path: String,
 
-    #[arg(long)]
+    #[arg(long, conflicts_with = "document_id")]
     pub folder: Option<String>,
 
     #[arg(long)]
@@ -182,7 +187,7 @@ pub struct ExportArgs {
 
 #[derive(Debug, Args)]
 pub struct DeleteArgs {
-    pub document_id: Option<String>,
+    pub document_id: String,
 
     #[arg(long)]
     pub force: bool,
