@@ -5,3 +5,21 @@ members = [
   "frontend/src-tauri",
 ]
 resolver = "2"
+
+[workspace.metadata.dist]
+cargo-dist-version = "0.30.2"
+ci = ["github"]
+installers = ["shell", "powershell"]
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+]
+hosting = ["github"]
+packages = ["tentacle-cli"]
+pr-run-mode = "plan"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

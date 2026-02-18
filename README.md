@@ -33,6 +33,54 @@ Tentacle captures your thoughts via voice, transcribes them instantly, and autom
 2. Make it executable: `chmod +x Tentacle*.AppImage`
 3. Run: `./Tentacle*.AppImage`
 
+## CLI (Agents and Automation)
+
+Tentacle also ships a Rust CLI binary named `tentacle` for terminal workflows and coding agents.
+
+### Install the CLI
+
+```bash
+# macOS / Linux installer script
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/polvera/tentacle-app/releases/latest/download/tentacle-installer.sh | sh
+```
+
+```powershell
+# Windows installer script
+irm https://github.com/polvera/tentacle-app/releases/latest/download/tentacle-installer.ps1 | iex
+```
+
+```bash
+# Rust users (install from git)
+cargo install --git https://github.com/polvera/tentacle-app --locked tentacle-cli
+```
+
+Direct binary archives are also available on each GitHub release for:
+- `aarch64-apple-darwin`
+- `x86_64-apple-darwin`
+- `x86_64-unknown-linux-gnu`
+- `x86_64-pc-windows-msvc`
+
+### CLI JSON examples
+
+```bash
+# Initialize and inspect status
+tentacle init --json
+tentacle status --json
+```
+
+```bash
+# Agent pipeline: search -> read -> tag
+doc_id=$(tentacle search "voice capture latency" --limit 1 --json | jq -r '.results[0].id')
+tentacle read "$doc_id" --json | jq -r '.content'
+tentacle tag "$doc_id" "reviewed,agent-checked" --json
+```
+
+```bash
+# Create from stdin for non-interactive pipelines
+cat note.md | tentacle create --title "Imported from pipeline" --folder inbox --json
+```
+
 ## Core Philosophy
 
 **Capture → Transcribe → Organize**
@@ -173,6 +221,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
 ## Documentation
 
 - [BUILD.md](BUILD.md) - Comprehensive build instructions for all platforms
+- [cli/README.md](cli/README.md) - CLI installation and AI-agent workflow examples
 - [specs/TEN-8-tauri-desktop-app/](specs/TEN-8-tauri-desktop-app/) - Technical specifications
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
 
