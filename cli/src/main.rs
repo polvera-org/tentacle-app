@@ -5,20 +5,27 @@ mod output;
 use clap::Parser;
 use serde::Serialize;
 use std::collections::HashSet;
+use std::fs;
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::process::ExitCode;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tentacle_core::config::{default_data_dir, ConfigError, ConfigStore, KEY_DOCUMENTS_FOLDER};
 use tentacle_core::document_cache::{DocumentCacheError, DocumentCacheStore};
-use tentacle_core::document_folders::DocumentFoldersError;
+use tentacle_core::document_folders::{
+    DeleteDocumentFolderInputPayload, DocumentFolderPayload, DocumentFoldersError,
+    DocumentFoldersService, RenameDocumentFolderInputPayload,
+};
 use tentacle_core::document_store::{
-    self, DocumentStoreError, StoredDocument, StoredDocumentListItem,
+    self, CreateDocumentInput, DocumentStoreError, StoredDocument, StoredDocumentListItem,
+    TagUpdateMode,
 };
 use tentacle_core::knowledge_base::{KnowledgeBaseError, KnowledgeBaseService, SearchOptions};
 
 use crate::cli::{
-    Cli, Commands, ConfigCommands, FolderCommands, ListArgs, ListSort, ReadArgs, ReindexArgs,
-    SearchArgs,
+    Cli, Commands, ConfigCommands, CreateArgs, FolderCommands, ListArgs, ListSort, ReadArgs,
+    ReindexArgs, SearchArgs, TagArgs,
 };
 use crate::errors::{clap_exit_code, exit_code_for, summarize_clap_error, CliError};
 
@@ -75,32 +82,14 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Commands::List(args) => handle_list(args, cli.json),
         Commands::Search(args) => handle_search(args, cli.json),
         Commands::Read(args) => handle_read(args, cli.json),
-
-        Commands::Create(_) => {
-            output::print_scaffold_success("create", cli.json);
-            Ok(())
-        }
-        Commands::Tag(_) => {
-            output::print_scaffold_success("tag", cli.json);
-            Ok(())
-        }
-
+        Commands::Create(args) => handle_create(args, cli.json),
+        Commands::Tag(args) => handle_tag(args, cli.json),
         Commands::Folder { command } => match command {
-            FolderCommands::List => {
-                output::print_scaffold_success("folder list", cli.json);
-                Ok(())
-            }
-            FolderCommands::Create { .. } => {
-                output::print_scaffold_success("folder create", cli.json);
-                Ok(())
-            }
-            FolderCommands::Delete { .. } => {
-                output::print_scaffold_success("folder delete", cli.json);
-                Ok(())
-            }
-            FolderCommands::Rename { .. } => {
-                output::print_scaffold_success("folder rename", cli.json);
-                Ok(())
+            FolderCommands::List => handle_folder_list(cli.json),
+            FolderCommands::Create { name } => handle_folder_create(name, cli.json),
+            FolderCommands::Delete { name, force } => handle_folder_delete(name, *force, cli.json),
+            FolderCommands::Rename { old_name, new_name } => {
+                handle_folder_rename(old_name, new_name, cli.json)
             }
         },
 
@@ -247,6 +236,53 @@ struct ReadResponsePayload {
     modified_at: String,
     content: String,
     size_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateResponsePayload {
+    id: String,
+    title: String,
+    folder: String,
+    tags: Vec<String>,
+    created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TagResponsePayload {
+    id: String,
+    tags: Vec<String>,
+    tags_added: Vec<String>,
+    tags_removed: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct FolderItemPayload {
+    path: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_path: Option<String>,
+    document_count: usize,
+    subfolder_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct FolderListResponsePayload {
+    folders: Vec<FolderItemPayload>,
+}
+
+#[derive(Debug, Serialize)]
+struct FolderRenameResponsePayload {
+    old_name: String,
+    new_name: String,
+    document_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct FolderDeleteResponsePayload {
+    name: String,
+    status: &'static str,
+    documents_moved: usize,
+    moved_to: String,
 }
 
 fn handle_init(json: bool) -> Result<(), CliError> {
@@ -606,6 +642,289 @@ fn handle_read(args: &ReadArgs, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
+fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+    let config_store = open_config_store()?;
+
+    let folder = resolve_create_folder(args.folder.as_deref(), &config_store)?;
+    let configured_editor = get_config_text_or_default(&config_store, ConfigKey::Editor)?;
+    let explicit_title = normalize_optional_text(args.title.as_deref());
+    let initial_editor_content = explicit_title
+        .as_deref()
+        .map(|title| format!("# {title}\n\n"))
+        .unwrap_or_default();
+    let body = read_create_body(&configured_editor, &initial_editor_content)?;
+    let inferred_title = infer_title_from_content(&body);
+    let tags = parse_csv_values(args.tags.as_deref().unwrap_or_default());
+
+    let created = document_store::create_document(
+        &documents_folder,
+        &CreateDocumentInput {
+            title: explicit_title.or(inferred_title),
+            body: Some(body),
+            folder_path: Some(folder),
+            tags,
+            tags_locked: Some(false),
+            id: None,
+        },
+    )
+    .map_err(map_document_store_error)?;
+
+    sync_cache_for_document_folder(&documents_folder, &created.folder_path)?;
+
+    let payload = CreateResponsePayload {
+        id: created.id,
+        title: created.title,
+        folder: created.folder_path,
+        tags: created.tags,
+        created_at: created.created_at,
+    };
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!("Created document {}.", payload.id);
+    println!("Title: {}", payload.title);
+    println!("Folder: {}", payload.folder);
+    if payload.tags.is_empty() {
+        println!("Tags: (none)");
+    } else {
+        println!("Tags: {}", payload.tags.join(", "));
+    }
+
+    Ok(())
+}
+
+fn handle_tag(args: &TagArgs, json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+
+    if args.tags.is_none() {
+        if args.remove || args.replace {
+            return Err(CliError::invalid_arguments(
+                "tags are required when using --remove or --replace",
+            ));
+        }
+
+        let document = document_store::read_document(&documents_folder, &args.document_id)
+            .map_err(map_document_store_error)?;
+        let payload = TagResponsePayload {
+            id: document.id,
+            tags: document.tags,
+            tags_added: Vec::new(),
+            tags_removed: Vec::new(),
+        };
+
+        if json {
+            return print_json(&payload);
+        }
+
+        if payload.tags.is_empty() {
+            println!("No tags set.");
+        } else {
+            println!("{}", payload.tags.join(", "));
+        }
+        return Ok(());
+    }
+
+    let incoming_tags = parse_csv_values(args.tags.as_deref().unwrap_or_default());
+    let mode = if args.remove {
+        TagUpdateMode::Remove
+    } else if args.replace {
+        TagUpdateMode::Replace
+    } else {
+        TagUpdateMode::Add
+    };
+
+    let previous = document_store::read_document(&documents_folder, &args.document_id)
+        .map_err(map_document_store_error)?;
+    let updated = document_store::update_document_tags(
+        &documents_folder,
+        &args.document_id,
+        &incoming_tags,
+        mode,
+    )
+    .map_err(map_document_store_error)?;
+
+    sync_cache_for_document_folder(&documents_folder, &updated.folder_path)?;
+
+    let payload = TagResponsePayload {
+        id: updated.id,
+        tags_added: ordered_set_difference(&updated.tags, &previous.tags),
+        tags_removed: ordered_set_difference(&previous.tags, &updated.tags),
+        tags: updated.tags,
+    };
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!("Document {} tags updated.", payload.id);
+    if payload.tags.is_empty() {
+        println!("Tags: (none)");
+    } else {
+        println!("Tags: {}", payload.tags.join(", "));
+    }
+
+    Ok(())
+}
+
+fn handle_folder_list(json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+    let folders = DocumentFoldersService::list_folders(&documents_folder)
+        .map_err(map_document_folders_error)?;
+    let payload = FolderListResponsePayload {
+        folders: folders.into_iter().map(map_folder_item_payload).collect(),
+    };
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!(
+        "{:<28} {:<18} {:<10} SUBFOLDERS",
+        "PATH", "NAME", "DOCUMENTS"
+    );
+    for folder in &payload.folders {
+        println!(
+            "{:<28} {:<18} {:<10} {}",
+            truncate_display(&folder.path, 28),
+            truncate_display(&folder.name, 18),
+            folder.document_count,
+            folder.subfolder_count
+        );
+    }
+
+    Ok(())
+}
+
+fn handle_folder_create(name: &str, json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+    let folder_path = require_folder_path(name, "folder name")?;
+    let created = DocumentFoldersService::create_folder(&documents_folder, &folder_path)
+        .map_err(map_document_folders_error)?;
+    let payload = map_folder_item_payload(created);
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!("Created folder {}.", payload.path);
+    Ok(())
+}
+
+fn handle_folder_rename(old_name: &str, new_name: &str, json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+    let normalized_old_name = require_folder_path(old_name, "old_name")?;
+    let renamed = DocumentFoldersService::rename_folder(
+        &documents_folder,
+        &RenameDocumentFolderInputPayload {
+            path: normalized_old_name.clone(),
+            name: new_name.to_owned(),
+        },
+    )
+    .map_err(map_document_folders_error)?;
+
+    sync_cache_full(&documents_folder)?;
+
+    let payload = FolderRenameResponsePayload {
+        old_name: normalized_old_name,
+        new_name: renamed.path,
+        document_count: renamed.document_count,
+    };
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!(
+        "Renamed folder {} -> {}.",
+        payload.old_name, payload.new_name
+    );
+    Ok(())
+}
+
+fn handle_folder_delete(name: &str, force: bool, json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+    let folder_path = require_folder_path(name, "folder name")?;
+
+    if folder_path == DEFAULT_FOLDER {
+        return Err(CliError::invalid_arguments(
+            "cannot delete folder \"inbox\" because it is the default move target",
+        ));
+    }
+
+    let documents =
+        document_store::list_documents(&documents_folder).map_err(map_document_store_error)?;
+    let documents_to_move = documents
+        .into_iter()
+        .filter(|document| folder_matches_filter(&document.folder_path, &folder_path))
+        .map(|document| document.id)
+        .collect::<Vec<_>>();
+    let documents_to_move_count = documents_to_move.len();
+
+    if !force {
+        if io::stdin().is_terminal() {
+            if !confirm_folder_delete(&folder_path, documents_to_move_count)? {
+                let payload = FolderDeleteResponsePayload {
+                    name: folder_path,
+                    status: "cancelled",
+                    documents_moved: 0,
+                    moved_to: DEFAULT_FOLDER.to_owned(),
+                };
+
+                if json {
+                    return print_json(&payload);
+                }
+
+                println!("Folder deletion cancelled.");
+                return Ok(());
+            }
+        } else {
+            return Err(CliError::invalid_arguments(
+                "non-interactive folder deletion requires --force",
+            ));
+        }
+    }
+
+    for document_id in &documents_to_move {
+        DocumentFoldersService::move_document_to_folder(
+            &documents_folder,
+            document_id,
+            DEFAULT_FOLDER,
+        )
+        .map_err(map_document_folders_error)?;
+    }
+
+    DocumentFoldersService::delete_folder(
+        &documents_folder,
+        &DeleteDocumentFolderInputPayload {
+            path: folder_path.clone(),
+            recursive: true,
+        },
+    )
+    .map_err(map_document_folders_error)?;
+
+    sync_cache_full(&documents_folder)?;
+
+    let payload = FolderDeleteResponsePayload {
+        name: folder_path,
+        status: "deleted",
+        documents_moved: documents_to_move_count,
+        moved_to: DEFAULT_FOLDER.to_owned(),
+    };
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!(
+        "Deleted folder {} and moved {} document(s) to {}.",
+        payload.name, payload.documents_moved, payload.moved_to
+    );
+    Ok(())
+}
+
 fn open_config_store() -> Result<ConfigStore, CliError> {
     let app_data_dir = resolve_app_data_dir()?;
     ConfigStore::new(&app_data_dir).map_err(map_config_error)
@@ -721,6 +1040,163 @@ fn get_config_value(store: &ConfigStore, key: ConfigKey) -> Result<ConfigValuePa
             store, key,
         )?)),
     }
+}
+
+fn resolve_create_folder(
+    requested_folder: Option<&str>,
+    config_store: &ConfigStore,
+) -> Result<String, CliError> {
+    if let Some(raw_folder) = requested_folder {
+        return require_folder_path(raw_folder, "folder");
+    }
+
+    let configured_default = get_config_text_or_default(config_store, ConfigKey::DefaultFolder)?;
+    if let Some(normalized_default) = normalize_folder_filter(Some(&configured_default))? {
+        return Ok(normalized_default);
+    }
+
+    Ok(DEFAULT_FOLDER.to_owned())
+}
+
+fn require_folder_path(raw_value: &str, argument_name: &str) -> Result<String, CliError> {
+    normalize_folder_filter(Some(raw_value))?
+        .ok_or_else(|| CliError::invalid_arguments(format!("{argument_name} must not be empty")))
+}
+
+fn normalize_optional_text(raw_value: Option<&str>) -> Option<String> {
+    raw_value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn infer_title_from_content(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let heading_trimmed = trimmed.trim_start_matches('#').trim();
+        if !heading_trimmed.is_empty() {
+            return Some(heading_trimmed.to_owned());
+        }
+
+        return Some(trimmed.to_owned());
+    }
+
+    None
+}
+
+fn read_create_body(editor: &str, initial_editor_content: &str) -> Result<String, CliError> {
+    if !io::stdin().is_terminal() {
+        let mut body = String::new();
+        io::stdin()
+            .read_to_string(&mut body)
+            .map_err(map_io_error)?;
+        return Ok(body);
+    }
+
+    open_editor_with_temp_file(editor, initial_editor_content)
+}
+
+fn open_editor_with_temp_file(editor: &str, initial_content: &str) -> Result<String, CliError> {
+    let editor = editor.trim();
+    if editor.is_empty() {
+        return Err(CliError::invalid_arguments(
+            "configured editor command must not be empty",
+        ));
+    }
+
+    let temp_path = build_editor_temp_path();
+    fs::write(&temp_path, initial_content).map_err(map_io_error)?;
+
+    let mut command_parts = editor.split_whitespace();
+    let Some(program) = command_parts.next() else {
+        return Err(CliError::invalid_arguments(
+            "configured editor command must not be empty",
+        ));
+    };
+    let args = command_parts.collect::<Vec<_>>();
+
+    let status = Command::new(program)
+        .args(args)
+        .arg(&temp_path)
+        .status()
+        .map_err(map_io_error)?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(CliError::General {
+            message: format!("editor command \"{editor}\" exited with status {status}"),
+        });
+    }
+
+    let content = fs::read_to_string(&temp_path).map_err(map_io_error)?;
+    let _ = fs::remove_file(&temp_path);
+    Ok(content)
+}
+
+fn build_editor_temp_path() -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let process_id = std::process::id();
+    std::env::temp_dir().join(format!("tentacle-create-{process_id}-{timestamp}.md"))
+}
+
+fn ordered_set_difference(left: &[String], right: &[String]) -> Vec<String> {
+    let right_set = right
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    left.iter()
+        .filter(|value| !right_set.contains(&value.to_ascii_lowercase()))
+        .cloned()
+        .collect()
+}
+
+fn map_folder_item_payload(folder: DocumentFolderPayload) -> FolderItemPayload {
+    FolderItemPayload {
+        path: folder.path,
+        name: folder.name,
+        parent_path: folder.parent_path,
+        document_count: folder.document_count,
+        subfolder_count: folder.subfolder_count,
+    }
+}
+
+fn confirm_folder_delete(folder_name: &str, documents_to_move: usize) -> Result<bool, CliError> {
+    print!(
+        "Delete folder \"{folder_name}\"? {documents_to_move} documents will be moved to {DEFAULT_FOLDER}. (y/n): "
+    );
+    io::stdout().flush().map_err(map_io_error)?;
+
+    let mut response = String::new();
+    io::stdin().read_line(&mut response).map_err(map_io_error)?;
+
+    let normalized = response.trim().to_ascii_lowercase();
+    Ok(normalized == "y" || normalized == "yes")
+}
+
+fn sync_cache_for_document_folder(
+    documents_folder: &Path,
+    folder_path: &str,
+) -> Result<(), CliError> {
+    let folder_filter = if folder_path.trim().is_empty() {
+        None
+    } else {
+        Some(folder_path)
+    };
+    KnowledgeBaseService::reindex(documents_folder, folder_filter)
+        .map_err(map_knowledge_base_error)?;
+    Ok(())
+}
+
+fn sync_cache_full(documents_folder: &Path) -> Result<(), CliError> {
+    KnowledgeBaseService::reindex(documents_folder, None).map_err(map_knowledge_base_error)?;
+    Ok(())
 }
 
 fn normalize_folder_filter(folder: Option<&str>) -> Result<Option<String>, CliError> {
