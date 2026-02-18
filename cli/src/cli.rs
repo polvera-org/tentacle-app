@@ -1,12 +1,11 @@
-use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "tentacle",
     about = "Tentacle command-line interface",
     version,
-    arg_required_else_help = true,
-    disable_version_flag = true
+    arg_required_else_help = true
 )]
 pub struct Cli {
     #[arg(
@@ -15,15 +14,6 @@ pub struct Cli {
         help = "Output in JSON format for machine parsing"
     )]
     pub json: bool,
-
-    #[arg(
-        short = 'v',
-        long = "version",
-        global = true,
-        action = ArgAction::Version,
-        help = "Show version information"
-    )]
-    pub version: bool,
 
     #[command(subcommand)]
     pub command: Commands,

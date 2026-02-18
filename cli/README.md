@@ -60,7 +60,7 @@ tentacle list --json | \
 
 - `--json`: machine-friendly output for pipelines and agents
 - `--help`: command usage
-- `--version` / `-v`: CLI version
+- `--version` / `-V`: CLI version
 
 ## Output contract (JSON)
 
