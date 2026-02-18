@@ -321,7 +321,8 @@ fn hybrid_search_documents_by_query(
 
 #[tauri::command]
 fn list_document_folders(documents_folder: String) -> Result<Vec<DocumentFolderPayload>, String> {
-    DocumentFoldersService::list_folders(Path::new(&documents_folder)).map_err(|err| err.to_string())
+    DocumentFoldersService::list_folders(Path::new(&documents_folder))
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
