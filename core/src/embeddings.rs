@@ -17,11 +17,12 @@ use tokenizers::{Tokenizer, TruncationDirection};
 
 use crate::document_cache::{
     CachedDocumentChunkEmbeddingPayload, CachedDocumentEmbeddingMetadataPayload,
-    CachedDocumentEmbeddingPayload, DocumentCacheError, DocumentCacheStore, HybridSearchHitPayload,
-    EMBEDDING_VECTOR_DIMENSIONS,
+    CachedDocumentEmbeddingPayload, CachedDocumentEmbeddingSyncBatchPayload, DocumentCacheError,
+    DocumentCacheStore, HybridSearchHitPayload, EMBEDDING_VECTOR_DIMENSIONS,
 };
 use crate::text_processing::{
     build_document_embedding_source_text, chunk_document_text, format_query_for_embedding,
+    DocumentChunk,
 };
 
 const HF_EMBEDDING_REPO_ID: &str = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
@@ -35,6 +36,7 @@ const POSITION_IDS_NAME: &str = "position_ids";
 const PAST_KEY_VALUES_NAME: &str = "past_key_values.";
 const USE_CACHE_BRANCH_NAME: &str = "use_cache_branch";
 const CACHE_POSITION_NAME: &str = "cache_position";
+const EMBEDDING_SYNC_WRITE_BATCH_SIZE: usize = 75;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -787,56 +789,46 @@ struct PreparedDocumentEmbeddingWrite {
     chunk_embeddings: Option<Vec<CachedDocumentChunkEmbeddingPayload>>,
 }
 
-fn prepare_document_embedding_write_for_document(
+#[derive(Debug)]
+struct DocumentEmbeddingSyncPlan {
+    source_text: String,
+    document_content_hash: String,
+    should_update_document_embedding: bool,
+    chunks: Vec<DocumentChunk>,
+    chunk_content_hash: String,
+    should_update_chunk_embeddings: bool,
+}
+
+#[derive(Debug)]
+struct ChangedDocumentEmbeddingSyncCandidate<'a> {
+    document: &'a EmbeddingSyncDocumentPayload,
+    plan: DocumentEmbeddingSyncPlan,
+}
+
+fn plan_document_embedding_sync_for_document(
     store: &DocumentCacheStore,
     document: &EmbeddingSyncDocumentPayload,
     metadata_lookup: Option<&HashMap<String, CachedDocumentEmbeddingMetadataPayload>>,
-) -> Result<PreparedDocumentEmbeddingWrite, EmbeddingError> {
+    chunk_hash_lookup: Option<&HashMap<String, String>>,
+) -> Result<DocumentEmbeddingSyncPlan, EmbeddingError> {
     let source_text = build_document_embedding_source_text(&document.title, &document.body);
-    let content_hash = compute_document_content_hash(&source_text);
+    let document_content_hash = compute_document_content_hash(&source_text);
 
     let should_update_document_embedding = if let Some(lookup) = metadata_lookup {
-        if let Some(existing) = lookup.get(&document.id) {
-            if existing.content_hash == content_hash {
-                log::info!(
-                    "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
-                    document.id
-                );
-                false
-            } else {
-                true
-            }
-        } else {
-            true
-        }
+        lookup
+            .get(&document.id)
+            .map(|existing| existing.content_hash != document_content_hash)
+            .unwrap_or(true)
     } else {
         let metadata = store
             .list_document_embedding_metadata()?
             .into_iter()
             .find(|item| item.document_id == document.id && item.model == LOCAL_EMBEDDING_MODEL_ID);
 
-        if metadata.as_ref().map(|item| item.content_hash.as_str()) == Some(content_hash.as_str()) {
-            log::info!(
-                "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
-                document.id
-            );
-            false
-        } else {
-            true
-        }
-    };
-
-    let document_embedding = if should_update_document_embedding {
-        let vector = embed_document_text(&source_text)?;
-        Some(CachedDocumentEmbeddingPayload {
-            document_id: document.id.clone(),
-            model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
-            content_hash: content_hash.clone(),
-            vector,
-            updated_at: document.updated_at.clone(),
-        })
-    } else {
-        None
+        metadata
+            .as_ref()
+            .map(|item| item.content_hash.as_str())
+            != Some(document_content_hash.as_str())
     };
 
     let plain_body = crate::text_processing::extract_plain_text_from_tiptap_or_raw(&document.body);
@@ -845,44 +837,84 @@ fn prepare_document_embedding_write_for_document(
         .iter()
         .map(|chunk| chunk.text.clone())
         .collect::<Vec<_>>();
-    let combined_hash = compute_chunk_content_hash(&chunk_texts);
-    let existing_chunk_hash =
-        store.get_document_chunk_embedding_content_hash(&document.id, LOCAL_EMBEDDING_MODEL_ID)?;
+    let chunk_content_hash = compute_chunk_content_hash(&chunk_texts);
 
-    let chunk_embeddings = if existing_chunk_hash.as_deref() == Some(combined_hash.as_str()) {
+    let existing_chunk_hash = if let Some(lookup) = chunk_hash_lookup {
+        lookup.get(&document.id).cloned()
+    } else {
+        store.get_document_chunk_embedding_content_hash(&document.id, LOCAL_EMBEDDING_MODEL_ID)?
+    };
+
+    let should_update_chunk_embeddings =
+        existing_chunk_hash.as_deref() != Some(chunk_content_hash.as_str());
+
+    Ok(DocumentEmbeddingSyncPlan {
+        source_text,
+        document_content_hash,
+        should_update_document_embedding,
+        chunks,
+        chunk_content_hash,
+        should_update_chunk_embeddings,
+    })
+}
+
+fn prepare_document_embedding_write_from_plan(
+    document: &EmbeddingSyncDocumentPayload,
+    plan: DocumentEmbeddingSyncPlan,
+) -> Result<PreparedDocumentEmbeddingWrite, EmbeddingError> {
+    let document_embedding = if plan.should_update_document_embedding {
+        let vector = embed_document_text(&plan.source_text)?;
+        Some(CachedDocumentEmbeddingPayload {
+            document_id: document.id.clone(),
+            model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
+            content_hash: plan.document_content_hash.clone(),
+            vector,
+            updated_at: document.updated_at.clone(),
+        })
+    } else {
         log::info!(
-            "[embedding-sync] skip chunk embeddings for \"{}\" (hash unchanged)",
+            "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
             document.id
         );
         None
-    } else {
-        let chunk_text_refs = chunks
+    };
+
+    let chunk_embeddings = if plan.should_update_chunk_embeddings {
+        let chunk_text_refs = plan
+            .chunks
             .iter()
             .map(|chunk| chunk.text.as_str())
             .collect::<Vec<_>>();
         let vectors = embed_texts_batch(&chunk_text_refs)?;
-        if vectors.len() != chunks.len() {
+        if vectors.len() != plan.chunks.len() {
             return Err(EmbeddingError::InvalidOutputShape(format!(
                 "expected {} chunk embeddings, got {}",
-                chunks.len(),
+                plan.chunks.len(),
                 vectors.len()
             )));
         }
 
-        let payloads = chunks
+        let payloads = plan
+            .chunks
             .into_iter()
             .zip(vectors)
             .map(|(chunk, vector)| CachedDocumentChunkEmbeddingPayload {
                 document_id: document.id.clone(),
                 chunk_index: chunk.index,
                 chunk_text: chunk.text,
-                content_hash: combined_hash.clone(),
+                content_hash: plan.chunk_content_hash.clone(),
                 model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
                 vector,
                 updated_at: document.updated_at.clone(),
             })
             .collect::<Vec<_>>();
         Some(payloads)
+    } else {
+        log::info!(
+            "[embedding-sync] skip chunk embeddings for \"{}\" (hash unchanged)",
+            document.id
+        );
+        None
     };
 
     Ok(PreparedDocumentEmbeddingWrite {
@@ -890,6 +922,31 @@ fn prepare_document_embedding_write_for_document(
         document_embedding,
         chunk_embeddings,
     })
+}
+
+fn prepared_write_to_batch_payload(
+    prepared_write: PreparedDocumentEmbeddingWrite,
+) -> CachedDocumentEmbeddingSyncBatchPayload {
+    CachedDocumentEmbeddingSyncBatchPayload {
+        document_id: prepared_write.document_id,
+        document_embedding: prepared_write.document_embedding,
+        chunk_embeddings: prepared_write.chunk_embeddings,
+    }
+}
+
+fn prepare_document_embedding_write_for_document(
+    store: &DocumentCacheStore,
+    document: &EmbeddingSyncDocumentPayload,
+    metadata_lookup: Option<&HashMap<String, CachedDocumentEmbeddingMetadataPayload>>,
+    chunk_hash_lookup: Option<&HashMap<String, String>>,
+) -> Result<PreparedDocumentEmbeddingWrite, EmbeddingError> {
+    let plan = plan_document_embedding_sync_for_document(
+        store,
+        document,
+        metadata_lookup,
+        chunk_hash_lookup,
+    )?;
+    prepare_document_embedding_write_from_plan(document, plan)
 }
 
 pub fn preload_embedding_model<F>(mut on_state: F) -> Result<(), EmbeddingError>
@@ -959,7 +1016,7 @@ pub fn sync_document_embeddings(
     metadata_lookup: Option<&HashMap<String, CachedDocumentEmbeddingMetadataPayload>>,
 ) -> Result<(), EmbeddingError> {
     let prepared_write =
-        prepare_document_embedding_write_for_document(store, document, metadata_lookup)?;
+        prepare_document_embedding_write_for_document(store, document, metadata_lookup, None)?;
 
     if let Some(document_embedding) = prepared_write.document_embedding.as_ref() {
         store.upsert_document_embedding(document_embedding)?;
@@ -985,35 +1042,124 @@ pub fn sync_documents_embeddings_batch_with_progress(
     mut progress_callback: Option<&mut crate::knowledge_base::ProgressCallback>,
 ) -> Result<EmbeddingBatchSyncResultPayload, EmbeddingError> {
     let metadata_lookup = build_metadata_lookup(store.list_document_embedding_metadata()?);
+    let chunk_hash_lookup =
+        store.list_document_chunk_embedding_hashes_by_model(LOCAL_EMBEDDING_MODEL_ID)?;
+
+    let mut changed_documents: Vec<ChangedDocumentEmbeddingSyncCandidate<'_>> = Vec::new();
+    for document in documents {
+        let plan = plan_document_embedding_sync_for_document(
+            store,
+            document,
+            Some(&metadata_lookup),
+            Some(&chunk_hash_lookup),
+        )?;
+        if plan.should_update_document_embedding || plan.should_update_chunk_embeddings {
+            changed_documents.push(ChangedDocumentEmbeddingSyncCandidate { document, plan });
+        }
+    }
+
+    let total_changed_documents = changed_documents.len();
 
     if let Some(callback) = progress_callback.as_mut() {
         callback(crate::knowledge_base::ProgressEvent::Phase2Start {
-            total_documents: documents.len(),
+            total_documents: total_changed_documents,
         });
     }
 
-    let mut synced_count = 0;
+    let mut synced_count = documents.len().saturating_sub(total_changed_documents);
     let mut failed_count = 0;
+    let mut attempted_changed_count = 0;
 
-    for (index, document) in documents.iter().enumerate() {
-        match sync_document_embeddings(store, document, Some(&metadata_lookup)) {
-            Ok(()) => synced_count += 1,
-            Err(error) => {
-                failed_count += 1;
-                log::error!(
-                    "[embedding-sync] Failed to sync embeddings for \"{}\": {}",
-                    document.id,
-                    error
-                );
+    while !changed_documents.is_empty() {
+        let batch_len = changed_documents
+            .len()
+            .min(EMBEDDING_SYNC_WRITE_BATCH_SIZE);
+        let batch = changed_documents
+            .drain(..batch_len)
+            .collect::<Vec<ChangedDocumentEmbeddingSyncCandidate<'_>>>();
+
+        let mut batch_payloads: Vec<CachedDocumentEmbeddingSyncBatchPayload> =
+            Vec::with_capacity(batch.len());
+        let mut batch_document_ids: Vec<String> = Vec::with_capacity(batch.len());
+
+        for candidate in batch {
+            match prepare_document_embedding_write_from_plan(candidate.document, candidate.plan) {
+                Ok(prepared_write) => {
+                    batch_document_ids.push(candidate.document.id.clone());
+                    batch_payloads.push(prepared_write_to_batch_payload(prepared_write));
+                }
+                Err(error) => {
+                    failed_count += 1;
+                    attempted_changed_count += 1;
+                    log::error!(
+                        "[embedding-sync] Failed to prepare embeddings for \"{}\": {}",
+                        candidate.document.id,
+                        error
+                    );
+
+                    if let Some(callback) = progress_callback.as_mut() {
+                        callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
+                            current: attempted_changed_count,
+                            total: total_changed_documents,
+                            document_id: candidate.document.id.clone(),
+                        });
+                    }
+                }
             }
         }
 
-        if let Some(callback) = progress_callback.as_mut() {
-            callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
-                current: index + 1,
-                total: documents.len(),
-                document_id: document.id.clone(),
-            });
+        if batch_payloads.is_empty() {
+            continue;
+        }
+
+        match store.apply_embedding_sync_batch(&batch_payloads) {
+            Ok(()) => {
+                for document_id in batch_document_ids {
+                    synced_count += 1;
+                    attempted_changed_count += 1;
+
+                    if let Some(callback) = progress_callback.as_mut() {
+                        callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
+                            current: attempted_changed_count,
+                            total: total_changed_documents,
+                            document_id,
+                        });
+                    }
+                }
+            }
+            Err(error) => {
+                log::error!(
+                    "[embedding-sync] Failed to write embedding batch (size={}): {}",
+                    batch_payloads.len(),
+                    error
+                );
+
+                for payload in batch_payloads {
+                    let document_id = payload.document_id.clone();
+                    match store.apply_embedding_sync_batch(std::slice::from_ref(&payload)) {
+                        Ok(()) => {
+                            synced_count += 1;
+                        }
+                        Err(document_error) => {
+                            failed_count += 1;
+                            log::error!(
+                                "[embedding-sync] Failed to sync embeddings for \"{}\": {}",
+                                document_id,
+                                document_error
+                            );
+                        }
+                    }
+
+                    attempted_changed_count += 1;
+                    if let Some(callback) = progress_callback.as_mut() {
+                        callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
+                            current: attempted_changed_count,
+                            total: total_changed_documents,
+                            document_id,
+                        });
+                    }
+                }
+            }
         }
     }
 
