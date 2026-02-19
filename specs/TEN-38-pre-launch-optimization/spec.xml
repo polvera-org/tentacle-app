@@ -1,0 +1,304 @@
+<plan>
+  <title>ten-38-reindex-pre-launch-optimization</title>
+  <goal>Reduce reindex time by batching embedding work, pre-filtering unchanged documents, parallelizing document reads, and minimizing database transaction overhead while keeping current CLI and progress behavior stable.</goal>
+  <steps>
+    <step>
+      <title>add-batched-embedding-primitives</title>
+      <goal>Create a reusable batched embedding API that holds the embedding engine mutex once per batch instead of once per text.</goal>
+      <context><![CDATA[
+Project is a Rust workspace. Reindex flow is in `core/src/knowledge_base.rs` and embedding sync is in `core/src/embeddings.rs`.
+
+Current pattern in `core/src/embeddings.rs`:
+- `embed_query_text(query: &str)` and `embed_document_text(text: &str)` each call `EmbeddingEngine::engine()?.lock()?` and then `engine.embed_text(...)`.
+- `sync_document_embeddings(...)` embeds document chunks in a loop, calling `embed_document_text` for each chunk.
+
+Relevant types already exist in `core/src/embeddings.rs` and `core/src/document_cache.rs`:
+- `EmbeddingError` includes `EmptyInput` and `EnginePoisoned`.
+- `CachedDocumentEmbeddingPayload` and `CachedDocumentChunkEmbeddingPayload` carry vectors and metadata.
+
+Pattern to follow for small, testable helper behavior:
+- Existing unit tests in `core/src/embeddings.rs` test pure helpers directly and avoid network/model setup.
+
+Do not modify CLI files in this step (`cli/src/*`, `cli/tests/*`).
+      ]]></context>
+      <instructions><![CDATA[
+Modify only `core/src/embeddings.rs`.
+
+1. Add a new public function:
+   `pub fn embed_texts_batch(texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError>`
+2. Add a private helper that works with an already-locked engine:
+   `fn embed_texts_batch_internal(engine: &mut EmbeddingEngine, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError>`
+3. Behavior requirements for `embed_texts_batch`:
+   - If `texts` is empty, return `Ok(Vec::new())` without initializing/locking the engine.
+   - If any entry is blank after `trim()`, return `Err(EmbeddingError::EmptyInput)` before model inference.
+   - Acquire the engine lock once per call, then embed all texts through `embed_texts_batch_internal`.
+4. Refactor `embed_query_text` and `embed_document_text` to call `embed_texts_batch` and return the first vector.
+5. Add focused unit tests in the existing test module for:
+   - empty batch short-circuit behavior
+   - blank-string rejection behavior
+
+Keep all existing public function signatures unchanged except adding the new `embed_texts_batch` API.
+      ]]></instructions>
+      <verification><![CDATA[
+cargo check -p tentacle-core
+cargo test -p tentacle-core embed_texts_batch
+rg -n "pub fn embed_texts_batch|embed_texts_batch_internal|embed_query_text|embed_document_text" core/src/embeddings.rs
+      ]]></verification>
+    </step>
+    <step>
+      <title>separate-embedding-compute-from-db-writes</title>
+      <goal>Refactor per-document sync so embedding computation can be batched independently from persistence.</goal>
+      <context><![CDATA[
+`core/src/embeddings.rs` currently has `sync_document_embeddings(...)` that both computes embeddings and writes to SQLite via `DocumentCacheStore` in the same function.
+
+Current data flow inside `sync_document_embeddings`:
+- Build doc source text and content hash.
+- Conditionally upsert document embedding.
+- Build chunks via `chunk_document_text(...)`.
+- Compute chunk hash and compare with `store.get_document_chunk_embedding_content_hash(...)`.
+- Loop through chunks, embedding each chunk and pushing `CachedDocumentChunkEmbeddingPayload`.
+- Persist with `store.replace_document_chunk_embeddings(...)`.
+
+Output expected from prior step:
+- `embed_texts_batch(texts: &[&str])` exists and is the preferred embedding entry point for multiple texts.
+
+This step should stay inside core and should not alter `KnowledgeBaseService` or CLI command signatures.
+      ]]></context>
+      <instructions><![CDATA[
+Modify `core/src/embeddings.rs`.
+
+1. Introduce an internal prepared-write struct for one document, for example:
+   - `document_id: String`
+   - `document_embedding: Option<CachedDocumentEmbeddingPayload>`
+   - `chunk_embeddings: Option<Vec<CachedDocumentChunkEmbeddingPayload>>`
+2. Add an internal function (name explicitly in code) that computes this prepared payload for one document without writing to DB.
+   - It must preserve existing hash-skip behavior for both document embedding hash and chunk hash.
+   - It must use `embed_texts_batch` for chunk embeddings instead of per-chunk `embed_document_text` calls.
+   - If both doc embedding and chunk embeddings are unchanged, return a payload indicating no DB writes are needed.
+3. Refactor `sync_document_embeddings(...)` to call the new compute function, then apply writes using existing single-document store methods so external behavior remains compatible.
+4. Keep log messages for skip/failure cases consistent with current style (`[embedding-sync] ...`).
+
+Do not add new database APIs in this step; only prepare/refactor the embedding module.
+      ]]></instructions>
+      <verification><![CDATA[
+cargo check -p tentacle-core
+cargo test -p tentacle-core knowledge_base_reindex_handles_empty_store
+rg -n "sync_document_embeddings|chunk_document_text|CachedDocumentChunkEmbeddingPayload|embed_texts_batch" core/src/embeddings.rs
+      ]]></verification>
+    </step>
+    <step>
+      <title>add-document-cache-batch-write-and-bulk-hash-apis</title>
+      <goal>Add transaction-scoped batch persistence APIs so many embedding updates can be committed in one DB transaction.</goal>
+      <context><![CDATA[
+`core/src/document_cache.rs` currently writes embeddings with per-document transactions:
+- `upsert_document_embedding(...)` starts/commits its own transaction.
+- `replace_document_chunk_embeddings(...)` starts/commits its own transaction.
+
+Existing pattern to follow:
+- `replace_documents(...)` uses one transaction for bulk operations and commits once.
+- Private helper methods already accept `&Transaction<'_>` for reuse (`upsert_document_record`, `insert_document_embedding`, etc.).
+
+Output expected from prior step:
+- `core/src/embeddings.rs` now has an internal prepared payload that can represent optional document-embedding and chunk-embedding writes per document.
+
+This step may modify `core/src/document_cache.rs` only. Keep existing public methods intact for backward compatibility.
+      ]]></context>
+      <instructions><![CDATA[
+Modify `core/src/document_cache.rs`.
+
+1. Add a new public batch payload type for embedding sync writes (document-level and chunk-level updates for one document).
+2. Add a new public method:
+   `pub fn apply_embedding_sync_batch(&mut self, payloads: &[...]) -> Result<(), DocumentCacheError>`
+   Requirements:
+   - Validate vector lengths before writing.
+   - Open one transaction for the full slice and commit once.
+   - For each payload, upsert doc embedding when present.
+   - For each payload, replace chunk embeddings when present (delete old rows and insert new rows) inside the same transaction.
+3. Add a new public hash lookup API for chunk pre-filtering:
+   `pub fn list_document_chunk_embedding_hashes_by_model(&self, model: &str) -> Result<HashMap<String, String>, DocumentCacheError>`
+   - Return latest hash per `document_id` for the given model.
+4. Keep existing single-document APIs (`upsert_document_embedding`, `replace_document_chunk_embeddings`, etc.) unchanged.
+5. Add unit tests in `core/src/document_cache.rs` for:
+   - atomic rollback of `apply_embedding_sync_batch` when one payload is invalid
+   - expected results for `list_document_chunk_embedding_hashes_by_model`
+
+Do not change schema definitions unless strictly required.
+      ]]></instructions>
+      <verification><![CDATA[
+cargo check -p tentacle-core
+cargo test -p tentacle-core document_cache::tests::
+rg -n "apply_embedding_sync_batch|list_document_chunk_embedding_hashes_by_model" core/src/document_cache.rs
+      ]]></verification>
+    </step>
+    <step>
+      <title>refactor-batch-sync-orchestration-for-prefilter-and-batched-writes</title>
+      <goal>Update the main embedding batch sync loop to skip unchanged documents up front and write changed documents in batches.</goal>
+      <context><![CDATA[
+Main orchestration function is `sync_documents_embeddings_batch_with_progress(...)` in `core/src/embeddings.rs`.
+
+Current behavior:
+- Builds metadata lookup once via `list_document_embedding_metadata()`.
+- Iterates every document sequentially.
+- Calls `sync_document_embeddings(...)` for each document.
+- Emits `Phase2Start`, `Phase2Progress`, and `Phase2Complete` progress events.
+
+Outputs expected from prior steps:
+- `embed_texts_batch(...)` exists.
+- Per-document compute/write separation exists in `core/src/embeddings.rs`.
+- `DocumentCacheStore` exposes `apply_embedding_sync_batch(...)` and `list_document_chunk_embedding_hashes_by_model(...)`.
+
+Reindex contract to preserve:
+- Return type `EmbeddingBatchSyncResultPayload { synced_count, failed_count }` unchanged.
+- Errors on one document should not abort entire sync; failures should be counted and logged.
+      ]]></context>
+      <instructions><![CDATA[
+Modify `core/src/embeddings.rs` only.
+
+1. In `sync_documents_embeddings_batch_with_progress(...)`, build both lookups once:
+   - document embedding metadata lookup (existing)
+   - chunk hash lookup via `list_document_chunk_embedding_hashes_by_model(LOCAL_EMBEDDING_MODEL_ID)`
+2. Pre-filter unchanged documents before expensive embedding work:
+   - determine whether each document needs doc embedding and/or chunk embedding update using content hashes
+   - keep unchanged docs out of compute batches
+3. Process changed documents in bounded batches (define a constant in this file, e.g. 50-100 docs).
+   - compute prepared payloads for each changed doc
+   - commit with `store.apply_embedding_sync_batch(...)` once per batch
+4. Progress/event requirements:
+   - emit `Phase2Start` with total equal to changed document count
+   - emit `Phase2Progress` for each changed document attempted
+   - emit `Phase2Complete` with final synced/failed counts
+5. Counting requirement:
+   - Preserve CLI-friendly semantics by including unchanged documents in `synced_count` (they are successfully skipped), while still tracking failed changed docs in `failed_count`.
+6. Keep `sync_documents_embeddings_batch(...)` and `sync_document_embeddings(...)` public signatures unchanged.
+
+Do not modify `core/src/knowledge_base.rs` in this step.
+      ]]></instructions>
+      <verification><![CDATA[
+cargo check -p tentacle-core
+cargo test -p tentacle-core knowledge_base::tests::knowledge_base_reindex_handles_empty_store
+cargo test -p tentacle-cli --test agent_cli_flows init_reindex_search_and_read_with_nested_fixture_docs
+      ]]></verification>
+    </step>
+    <step>
+      <title>parallelize-reindex-document-loading</title>
+      <goal>Parallelize filesystem document reads in reindex phase 1 while preserving deterministic output order and progress reporting.</goal>
+      <context><![CDATA[
+`load_cached_documents_with_progress(...)` in `core/src/knowledge_base.rs` currently reads files sequentially:
+- calls `document_store::list_documents(...)`
+- iterates listed docs
+- calls `document_store::read_document(...)` one by one
+- pushes successful reads into `cached_documents`
+- emits `Phase1Progress`
+- sorts result by `updated_at` desc then `id` asc
+
+Cargo dependencies for core are in `core/Cargo.toml` (currently no `rayon`).
+
+Reindex Phase 1 and Phase 2 progress event types are defined in `core/src/knowledge_base.rs` and consumed by CLI in `cli/src/progress.rs`.
+
+Important behavior to preserve:
+- Same folder filter semantics via `folder_matches_filter(...)`.
+- Warn-and-continue behavior for unreadable/missing files.
+- Final deterministic ordering of returned cached documents.
+      ]]></context>
+      <instructions><![CDATA[
+Modify `core/Cargo.toml` and `core/src/knowledge_base.rs`.
+
+1. Add `rayon` dependency to `core/Cargo.toml`.
+2. In `load_cached_documents_with_progress(...)`:
+   - Build a filtered list of candidate documents first.
+   - Read candidate files in parallel with `rayon::prelude::*` and `par_iter()`.
+   - Collect read outcomes, then fold outcomes sequentially to:
+     - log warnings consistently
+     - emit `Phase1Progress`
+     - build `cached_documents`
+3. Keep progress bar semantics coherent:
+   - `Phase1Start.total_documents` equals candidate count after folder filter.
+   - `Phase1Progress.current` advances to total even when some reads fail.
+4. Keep final sort (`updated_at` desc, then `id` asc) exactly as before.
+5. Do not change `KnowledgeBaseService::reindex_with_progress` public signature or return payload schema.
+
+Do not modify CLI UI progress rendering in this step.
+      ]]></instructions>
+      <verification><![CDATA[
+cargo check -p tentacle-core
+cargo test -p tentacle-core knowledge_base::tests::
+rg -n "rayon|par_iter|Phase1Progress|load_cached_documents_with_progress" core/src/knowledge_base.rs core/Cargo.toml
+      ]]></verification>
+    </step>
+    <step>
+      <title>finalize-tests-and-performance-validation</title>
+      <goal>Ensure optimization changes are covered by tests and produce measurable reindex performance improvements without contract regressions.</goal>
+      <context><![CDATA[
+By this point the following outputs are expected:
+- `core/src/embeddings.rs` includes batched embedding APIs and pre-filtered batch orchestration.
+- `core/src/document_cache.rs` includes batch write and bulk chunk-hash lookup APIs.
+- `core/src/knowledge_base.rs` loads documents in parallel for reindex phase 1.
+
+Existing test locations and patterns:
+- Core unit tests live inline in `core/src/*.rs`.
+- CLI JSON contract tests live in `cli/tests/agent_cli_flows.rs`.
+- Stress data generator exists at `scripts/seed_stresstest_data.sh`.
+
+This step should focus on test completeness and measurable validation; avoid introducing new product features.
+      ]]></context>
+      <instructions><![CDATA[
+Modify test files as needed and add one lightweight benchmark note file under `specs/TEN-38-pre-launch-optimization/`.
+
+1. Add/extend tests to cover:
+   - unchanged-document prefilter path does not require embedding recomputation
+   - batch DB write path maintains atomicity on failure
+   - reindex JSON payload fields (`documents_indexed`, `embeddings_synced`, `embeddings_failed`) remain present
+2. Execute a local performance smoke run using existing stress seed script:
+   - generate a moderate dataset (e.g., 200+ docs)
+   - run `tentacle reindex --json` twice (cold-ish and warm/incremental)
+   - capture wall-clock duration and key counts
+3. Save a concise results summary to:
+   `specs/TEN-38-pre-launch-optimization/benchmark-notes.md`
+   Include command lines used and observed timings/counts.
+
+Do not change CLI argument schema or JSON response field names.
+      ]]></instructions>
+      <verification><![CDATA[
+cargo test -p tentacle-core
+cargo test -p tentacle-cli --test agent_cli_flows
+cargo check -p tentacle-core
+rg -n "documents_indexed|embeddings_synced|embeddings_failed" cli/tests/agent_cli_flows.rs cli/src/main.rs
+test -f specs/TEN-38-pre-launch-optimization/benchmark-notes.md
+      ]]></verification>
+    </step>
+  </steps>
+  <acceptance_criteria>
+    <criterion>
+      <title>Batched Embedding API Exists</title>
+      <requirement>`core/src/embeddings.rs` exports `embed_texts_batch(&amp;[&amp;str])` and chunk embedding code paths call it instead of embedding each chunk via a separate engine lock. Verify with `rg -n "embed_texts_batch|for chunk in chunks" core/src/embeddings.rs` and code inspection.</requirement>
+    </criterion>
+    <criterion>
+      <title>Per-Document Compute Is Decoupled From Writes</title>
+      <requirement>`core/src/embeddings.rs` includes an internal prepared payload representation and uses it so compute and persistence are separate concerns. Verify with `rg -n "Prepared|payload|sync_document_embeddings" core/src/embeddings.rs` plus `cargo check -p tentacle-core`.</requirement>
+    </criterion>
+    <criterion>
+      <title>Batch DB Persistence Is Transactional</title>
+      <requirement>`core/src/document_cache.rs` includes `apply_embedding_sync_batch(...)` that commits all writes in one transaction and rolls back on error. Verify with `cargo test -p tentacle-core document_cache::tests::`.</requirement>
+    </criterion>
+    <criterion>
+      <title>Chunk Hashes Are Loaded In Bulk</title>
+      <requirement>`core/src/document_cache.rs` includes `list_document_chunk_embedding_hashes_by_model(...)` and batch sync uses it to pre-filter unchanged docs. Verify with `rg -n "list_document_chunk_embedding_hashes_by_model|Phase2Start" core/src/document_cache.rs core/src/embeddings.rs`.</requirement>
+    </criterion>
+    <criterion>
+      <title>Phase2 Reindex Work Is Prefiltered And Batched</title>
+      <requirement>`sync_documents_embeddings_batch_with_progress(...)` processes only changed docs through embedding compute, writes changed docs in bounded batches, and still reports skipped docs as synced in result counts. Verify by code inspection and `cargo test -p tentacle-cli --test agent_cli_flows init_reindex_search_and_read_with_nested_fixture_docs`.</requirement>
+    </criterion>
+    <criterion>
+      <title>Phase1 File Loading Runs In Parallel</title>
+      <requirement>`load_cached_documents_with_progress(...)` uses rayon-based parallel reads and still returns deterministically sorted cached documents. Verify with `rg -n "rayon|par_iter|sort_by" core/src/knowledge_base.rs` and `cargo test -p tentacle-core knowledge_base::tests::`.</requirement>
+    </criterion>
+    <criterion>
+      <title>Core Quality Gates Pass</title>
+      <requirement>All core checks pass after changes: run `cargo check -p tentacle-core` and `cargo test -p tentacle-core` with no failures.</requirement>
+    </criterion>
+    <criterion>
+      <title>Performance Smoke Results Are Recorded</title>
+      <requirement>`specs/TEN-38-pre-launch-optimization/benchmark-notes.md` exists and contains before/after reindex timing notes from the same machine and dataset generation commands.</requirement>
+    </criterion>
+  </acceptance_criteria>
+</plan>
