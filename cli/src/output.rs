@@ -3,32 +3,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::errors::CliError;
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-struct SuccessEnvelope<'a> {
-    status: &'static str,
-    command: &'a str,
-    message: &'static str,
-}
-
-pub fn print_scaffold_success(command: &str, json: bool) {
-    if json {
-        let payload = SuccessEnvelope {
-            status: "ok",
-            command,
-            message: "command scaffold is in place",
-        };
-
-        if let Err(error) = print_json(&payload) {
-            eprintln!("failed to serialize JSON output: {error}");
-        }
-
-        return;
-    }
-
-    println!("{command}: command scaffold is in place");
-}
-
 pub fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
     let output = serde_json::to_string_pretty(value).map_err(|error| CliError::General {
         message: format!("failed to serialize JSON output: {error}"),

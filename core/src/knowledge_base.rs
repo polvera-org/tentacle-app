@@ -301,13 +301,6 @@ impl KnowledgeBaseService {
     }
 }
 
-fn load_cached_documents(
-    documents_folder: &Path,
-    folder_filter: Option<&str>,
-) -> Result<Vec<CachedDocumentPayload>, KnowledgeBaseError> {
-    load_cached_documents_with_progress(documents_folder, folder_filter, None)
-}
-
 fn load_cached_documents_with_progress(
     documents_folder: &Path,
     folder_filter: Option<&str>,
