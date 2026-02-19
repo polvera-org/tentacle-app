@@ -169,6 +169,13 @@ pub struct CachedDocumentChunkEmbeddingPayload {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedDocumentEmbeddingSyncBatchPayload {
+    pub document_id: String,
+    pub document_embedding: Option<CachedDocumentEmbeddingPayload>,
+    pub chunk_embeddings: Option<Vec<CachedDocumentChunkEmbeddingPayload>>,
+}
+
 pub struct DocumentCacheStore {
     connection: Connection,
 }
@@ -550,40 +557,7 @@ impl DocumentCacheStore {
         validate_embedding_vector(&embedding.vector)?;
 
         let transaction = self.connection.transaction()?;
-        transaction.execute(
-            "INSERT INTO document_embeddings_meta (document_id, model, content_hash, updated_at)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(document_id) DO UPDATE SET
-               model = excluded.model,
-               content_hash = excluded.content_hash,
-               updated_at = excluded.updated_at",
-            params![
-                &embedding.document_id,
-                &embedding.model,
-                &embedding.content_hash,
-                &embedding.updated_at
-            ],
-        )?;
-
-        let meta_id: i64 = transaction.query_row(
-            "SELECT id FROM document_embeddings_meta WHERE document_id = ?1",
-            params![&embedding.document_id],
-            |row| row.get(0),
-        )?;
-
-        let vector_bytes = f32_vector_to_le_bytes(&embedding.vector);
-        // vec0 does not reliably support conflict clauses like INSERT OR REPLACE.
-        // Delete first, then insert deterministically for idempotent upserts.
-        transaction.execute(
-            "DELETE FROM document_embeddings_vec WHERE rowid = ?1",
-            params![meta_id],
-        )?;
-        transaction.execute(
-            "INSERT INTO document_embeddings_vec (rowid, embedding)
-             VALUES (?1, vec_f32(?2))",
-            params![meta_id, vector_bytes],
-        )?;
-
+        Self::upsert_document_embedding_in_transaction(&transaction, embedding)?;
         transaction.commit()?;
         Ok(())
     }
@@ -625,36 +599,48 @@ impl DocumentCacheStore {
         }
 
         let transaction = self.connection.transaction()?;
-        // Delete old chunks — the trigger will cascade to the vec table.
-        transaction.execute(
-            "DELETE FROM document_chunk_embeddings_meta WHERE document_id = ?1",
-            params![document_id],
-        )?;
+        Self::replace_document_chunk_embeddings_in_transaction(&transaction, document_id, chunks)?;
+        transaction.commit()?;
+        Ok(())
+    }
 
-        for chunk in chunks {
-            let chunk_index = i64::try_from(chunk.chunk_index)
-                .map_err(|_| DocumentCacheError::Validation("chunk_index is too large".into()))?;
-            transaction.execute(
-                "INSERT INTO document_chunk_embeddings_meta
-                   (document_id, chunk_index, chunk_text, content_hash, model, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    &chunk.document_id,
-                    chunk_index,
-                    &chunk.chunk_text,
-                    &chunk.content_hash,
-                    &chunk.model,
-                    &chunk.updated_at,
-                ],
-            )?;
+    pub fn apply_embedding_sync_batch(
+        &mut self,
+        payloads: &[CachedDocumentEmbeddingSyncBatchPayload],
+    ) -> Result<(), DocumentCacheError> {
+        let transaction = self.connection.transaction()?;
 
-            let meta_id = transaction.last_insert_rowid();
-            let vector_bytes = f32_vector_to_le_bytes(&chunk.vector);
-            transaction.execute(
-                "INSERT INTO document_chunk_embeddings_vec (rowid, embedding)
-                 VALUES (?1, vec_f32(?2))",
-                params![meta_id, vector_bytes],
-            )?;
+        for payload in payloads {
+            if let Some(document_embedding) = payload.document_embedding.as_ref() {
+                if document_embedding.document_id != payload.document_id {
+                    return Err(DocumentCacheError::Validation(format!(
+                        "document embedding payload document_id mismatch: expected {}, got {}",
+                        payload.document_id, document_embedding.document_id
+                    )));
+                }
+
+                validate_embedding_vector(&document_embedding.vector)?;
+                Self::upsert_document_embedding_in_transaction(&transaction, document_embedding)?;
+            }
+
+            if let Some(chunk_embeddings) = payload.chunk_embeddings.as_ref() {
+                for chunk in chunk_embeddings {
+                    if chunk.document_id != payload.document_id {
+                        return Err(DocumentCacheError::Validation(format!(
+                            "chunk embedding payload document_id mismatch: expected {}, got {}",
+                            payload.document_id, chunk.document_id
+                        )));
+                    }
+
+                    validate_embedding_vector(&chunk.vector)?;
+                }
+
+                Self::replace_document_chunk_embeddings_in_transaction(
+                    &transaction,
+                    &payload.document_id,
+                    chunk_embeddings,
+                )?;
+            }
         }
 
         transaction.commit()?;
@@ -680,6 +666,35 @@ impl DocumentCacheStore {
             .optional()?;
 
         Ok(content_hash)
+    }
+
+    pub fn list_document_chunk_embedding_hashes_by_model(
+        &self,
+        model: &str,
+    ) -> Result<HashMap<String, String>, DocumentCacheError> {
+        let mut statement = self.connection.prepare(
+            "SELECT m.document_id, m.content_hash
+             FROM document_chunk_embeddings_meta m
+             INNER JOIN (
+               SELECT document_id, MAX(id) AS latest_id
+               FROM document_chunk_embeddings_meta
+               WHERE model = ?1
+               GROUP BY document_id
+             ) latest ON latest.latest_id = m.id
+             ORDER BY m.document_id ASC",
+        )?;
+
+        let rows = statement.query_map(params![model], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut hashes = HashMap::new();
+        for row in rows {
+            let (document_id, content_hash) = row?;
+            hashes.insert(document_id, content_hash);
+        }
+
+        Ok(hashes)
     }
 
     pub fn semantic_search_documents(
@@ -1203,6 +1218,87 @@ impl DocumentCacheStore {
 
         Ok(())
     }
+
+    fn upsert_document_embedding_in_transaction(
+        transaction: &Transaction<'_>,
+        embedding: &CachedDocumentEmbeddingPayload,
+    ) -> Result<(), rusqlite::Error> {
+        transaction.execute(
+            "INSERT INTO document_embeddings_meta (document_id, model, content_hash, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(document_id) DO UPDATE SET
+               model = excluded.model,
+               content_hash = excluded.content_hash,
+               updated_at = excluded.updated_at",
+            params![
+                &embedding.document_id,
+                &embedding.model,
+                &embedding.content_hash,
+                &embedding.updated_at
+            ],
+        )?;
+
+        let meta_id: i64 = transaction.query_row(
+            "SELECT id FROM document_embeddings_meta WHERE document_id = ?1",
+            params![&embedding.document_id],
+            |row| row.get(0),
+        )?;
+
+        let vector_bytes = f32_vector_to_le_bytes(&embedding.vector);
+        // vec0 does not reliably support conflict clauses like INSERT OR REPLACE.
+        // Delete first, then insert deterministically for idempotent upserts.
+        transaction.execute(
+            "DELETE FROM document_embeddings_vec WHERE rowid = ?1",
+            params![meta_id],
+        )?;
+        transaction.execute(
+            "INSERT INTO document_embeddings_vec (rowid, embedding)
+             VALUES (?1, vec_f32(?2))",
+            params![meta_id, vector_bytes],
+        )?;
+
+        Ok(())
+    }
+
+    fn replace_document_chunk_embeddings_in_transaction(
+        transaction: &Transaction<'_>,
+        document_id: &str,
+        chunks: &[CachedDocumentChunkEmbeddingPayload],
+    ) -> Result<(), DocumentCacheError> {
+        // Delete old chunks — the trigger will cascade to the vec table.
+        transaction.execute(
+            "DELETE FROM document_chunk_embeddings_meta WHERE document_id = ?1",
+            params![document_id],
+        )?;
+
+        for chunk in chunks {
+            let chunk_index = i64::try_from(chunk.chunk_index)
+                .map_err(|_| DocumentCacheError::Validation("chunk_index is too large".into()))?;
+            transaction.execute(
+                "INSERT INTO document_chunk_embeddings_meta
+                   (document_id, chunk_index, chunk_text, content_hash, model, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    &chunk.document_id,
+                    chunk_index,
+                    &chunk.chunk_text,
+                    &chunk.content_hash,
+                    &chunk.model,
+                    &chunk.updated_at,
+                ],
+            )?;
+
+            let meta_id = transaction.last_insert_rowid();
+            let vector_bytes = f32_vector_to_le_bytes(&chunk.vector);
+            transaction.execute(
+                "INSERT INTO document_chunk_embeddings_vec (rowid, embedding)
+                 VALUES (?1, vec_f32(?2))",
+                params![meta_id, vector_bytes],
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 fn dedupe_non_empty_tags(tags: &[String]) -> Vec<String> {
@@ -1427,6 +1523,234 @@ mod tests {
                 "expected at least one BM25-only hybrid search hit"
             );
             assert_eq!(hits[0].document_id, document.id);
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn apply_embedding_sync_batch_rolls_back_when_payload_is_invalid() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+
+            let document_one = CachedDocumentPayload {
+                id: "doc-batch-1".to_string(),
+                user_id: "user-1".to_string(),
+                title: "Doc 1".to_string(),
+                body: "Body 1".to_string(),
+                folder_path: "".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:00Z".to_string(),
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+                tags: vec![],
+            };
+            store
+                .upsert_document(&document_one)
+                .expect("first document upsert should succeed");
+
+            let document_two = CachedDocumentPayload {
+                id: "doc-batch-2".to_string(),
+                user_id: "user-1".to_string(),
+                title: "Doc 2".to_string(),
+                body: "Body 2".to_string(),
+                folder_path: "".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:01Z".to_string(),
+                updated_at: "2026-02-13T00:00:01Z".to_string(),
+                tags: vec![],
+            };
+            store
+                .upsert_document(&document_two)
+                .expect("second document upsert should succeed");
+
+            let payloads = vec![
+                CachedDocumentEmbeddingSyncBatchPayload {
+                    document_id: document_one.id.clone(),
+                    document_embedding: Some(CachedDocumentEmbeddingPayload {
+                        document_id: document_one.id.clone(),
+                        model: "test-model".to_string(),
+                        content_hash: "doc-1-hash".to_string(),
+                        vector: vec![0.25; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:02Z".to_string(),
+                    }),
+                    chunk_embeddings: Some(vec![CachedDocumentChunkEmbeddingPayload {
+                        document_id: document_one.id.clone(),
+                        chunk_index: 0,
+                        chunk_text: "chunk 1".to_string(),
+                        content_hash: "chunk-1-hash".to_string(),
+                        model: "test-model".to_string(),
+                        vector: vec![0.5; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:02Z".to_string(),
+                    }]),
+                },
+                CachedDocumentEmbeddingSyncBatchPayload {
+                    document_id: document_two.id.clone(),
+                    document_embedding: Some(CachedDocumentEmbeddingPayload {
+                        document_id: document_two.id.clone(),
+                        model: "test-model".to_string(),
+                        content_hash: "doc-2-hash".to_string(),
+                        vector: vec![0.75; EMBEDDING_VECTOR_DIMENSIONS - 1],
+                        updated_at: "2026-02-13T00:00:02Z".to_string(),
+                    }),
+                    chunk_embeddings: None,
+                },
+            ];
+
+            let result = store.apply_embedding_sync_batch(&payloads);
+            assert!(matches!(result, Err(DocumentCacheError::Validation(_))));
+
+            let metadata = store
+                .list_document_embedding_metadata()
+                .expect("embedding metadata read should succeed");
+            assert!(
+                metadata.is_empty(),
+                "no embeddings should be committed when batch contains invalid payload"
+            );
+
+            let chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_one.id, "test-model")
+                .expect("chunk hash read should succeed");
+            assert!(chunk_hash.is_none(), "chunk writes should also be rolled back");
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn list_document_chunk_embedding_hashes_by_model_returns_latest_hash_per_document() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+
+            let documents = vec![
+                CachedDocumentPayload {
+                    id: "doc-hash-1".to_string(),
+                    user_id: "user-1".to_string(),
+                    title: "Doc hash 1".to_string(),
+                    body: "Body".to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: "2026-02-13T00:00:00Z".to_string(),
+                    updated_at: "2026-02-13T00:00:00Z".to_string(),
+                    tags: vec![],
+                },
+                CachedDocumentPayload {
+                    id: "doc-hash-2".to_string(),
+                    user_id: "user-1".to_string(),
+                    title: "Doc hash 2".to_string(),
+                    body: "Body".to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: "2026-02-13T00:00:01Z".to_string(),
+                    updated_at: "2026-02-13T00:00:01Z".to_string(),
+                    tags: vec![],
+                },
+                CachedDocumentPayload {
+                    id: "doc-hash-3".to_string(),
+                    user_id: "user-1".to_string(),
+                    title: "Doc hash 3".to_string(),
+                    body: "Body".to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: "2026-02-13T00:00:02Z".to_string(),
+                    updated_at: "2026-02-13T00:00:02Z".to_string(),
+                    tags: vec![],
+                },
+            ];
+
+            for document in &documents {
+                store
+                    .upsert_document(document)
+                    .expect("document upsert should succeed");
+            }
+
+            store
+                .replace_document_chunk_embeddings(
+                    &documents[0].id,
+                    &[
+                        CachedDocumentChunkEmbeddingPayload {
+                            document_id: documents[0].id.clone(),
+                            chunk_index: 0,
+                            chunk_text: "chunk old".to_string(),
+                            content_hash: "hash-old".to_string(),
+                            model: "model-a".to_string(),
+                            vector: vec![0.1; EMBEDDING_VECTOR_DIMENSIONS],
+                            updated_at: "2026-02-13T00:00:03Z".to_string(),
+                        },
+                        CachedDocumentChunkEmbeddingPayload {
+                            document_id: documents[0].id.clone(),
+                            chunk_index: 1,
+                            chunk_text: "chunk latest".to_string(),
+                            content_hash: "hash-latest".to_string(),
+                            model: "model-a".to_string(),
+                            vector: vec![0.2; EMBEDDING_VECTOR_DIMENSIONS],
+                            updated_at: "2026-02-13T00:00:04Z".to_string(),
+                        },
+                    ],
+                )
+                .expect("chunk upsert for doc 1 should succeed");
+
+            store
+                .replace_document_chunk_embeddings(
+                    &documents[1].id,
+                    &[CachedDocumentChunkEmbeddingPayload {
+                        document_id: documents[1].id.clone(),
+                        chunk_index: 0,
+                        chunk_text: "chunk".to_string(),
+                        content_hash: "hash-doc-2".to_string(),
+                        model: "model-a".to_string(),
+                        vector: vec![0.3; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:05Z".to_string(),
+                    }],
+                )
+                .expect("chunk upsert for doc 2 should succeed");
+
+            store
+                .replace_document_chunk_embeddings(
+                    &documents[2].id,
+                    &[CachedDocumentChunkEmbeddingPayload {
+                        document_id: documents[2].id.clone(),
+                        chunk_index: 0,
+                        chunk_text: "chunk".to_string(),
+                        content_hash: "hash-doc-3".to_string(),
+                        model: "model-b".to_string(),
+                        vector: vec![0.4; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:06Z".to_string(),
+                    }],
+                )
+                .expect("chunk upsert for doc 3 should succeed");
+
+            let model_a_hashes = store
+                .list_document_chunk_embedding_hashes_by_model("model-a")
+                .expect("hash listing should succeed");
+            assert_eq!(model_a_hashes.len(), 2);
+            assert_eq!(
+                model_a_hashes.get(&documents[0].id).map(String::as_str),
+                Some("hash-latest")
+            );
+            assert_eq!(
+                model_a_hashes.get(&documents[1].id).map(String::as_str),
+                Some("hash-doc-2")
+            );
+
+            let model_b_hashes = store
+                .list_document_chunk_embedding_hashes_by_model("model-b")
+                .expect("hash listing should succeed");
+            assert_eq!(model_b_hashes.len(), 1);
+            assert_eq!(
+                model_b_hashes.get(&documents[2].id).map(String::as_str),
+                Some("hash-doc-3")
+            );
         }
 
         let _ = std::fs::remove_dir_all(temp_dir);
