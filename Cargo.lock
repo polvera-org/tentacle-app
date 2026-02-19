@@ -5029,6 +5029,7 @@ dependencies = [
  "ndarray",
  "once_cell",
  "ort",
+ "rayon",
  "rusqlite",
  "serde",
  "serde_json",

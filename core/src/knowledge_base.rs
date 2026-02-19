@@ -4,6 +4,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -298,14 +299,14 @@ fn load_cached_documents_with_progress(
 ) -> Result<Vec<CachedDocumentPayload>, KnowledgeBaseError> {
     let listed_documents = document_store::list_documents(documents_folder)?;
 
-    // Count total documents to process for progress reporting
-    let total_to_process = if let Some(folder) = folder_filter {
-        listed_documents.iter()
-            .filter(|doc| folder_matches_filter(&doc.folder_path, folder))
-            .count()
-    } else {
-        listed_documents.len()
-    };
+    let candidate_documents = listed_documents
+        .into_iter()
+        .filter(|document| {
+            !folder_filter
+                .is_some_and(|folder| !folder_matches_filter(&document.folder_path, folder))
+        })
+        .collect::<Vec<_>>();
+    let total_to_process = candidate_documents.len();
 
     if let Some(callback) = progress_callback.as_mut() {
         callback(ProgressEvent::Phase1Start {
@@ -313,55 +314,72 @@ fn load_cached_documents_with_progress(
         });
     }
 
+    struct CandidateReadOutcome {
+        document_id: String,
+        read_result: Result<CachedDocumentPayload, DocumentStoreError>,
+    }
+
+    let read_outcomes = candidate_documents
+        .par_iter()
+        .map(|document| {
+            let read_result = document_store::read_document(documents_folder, &document.id).map(
+                |full_document| CachedDocumentPayload {
+                    id: full_document.id,
+                    user_id: LOCAL_USER_ID.to_owned(),
+                    title: full_document.title,
+                    body: full_document.body,
+                    folder_path: full_document.folder_path,
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: full_document.created_at,
+                    updated_at: full_document.updated_at,
+                    tags: full_document.tags,
+                },
+            );
+
+            CandidateReadOutcome {
+                document_id: document.id.clone(),
+                read_result,
+            }
+        })
+        .collect::<Vec<_>>();
+
     let mut cached_documents: Vec<CachedDocumentPayload> = Vec::new();
-    let mut processed_count = 0;
 
-    for document in listed_documents {
-        if folder_filter.is_some_and(|folder| !folder_matches_filter(&document.folder_path, folder))
-        {
-            continue;
-        }
-
-        let full_document = match document_store::read_document(documents_folder, &document.id) {
-            Ok(document) => document,
+    for (index, outcome) in read_outcomes.into_iter().enumerate() {
+        let fatal_error = match outcome.read_result {
+            Ok(document) => {
+                cached_documents.push(document);
+                None
+            }
             Err(DocumentStoreError::Io(error)) => {
                 log::warn!(
                     "[knowledge-base] failed to read document \"{}\" while reindexing: {}",
-                    document.id,
+                    outcome.document_id,
                     error
                 );
-                continue;
+                None
             }
             Err(DocumentStoreError::NotFound(message)) => {
                 log::warn!(
                     "[knowledge-base] skipped document \"{}\" while reindexing: {}",
-                    document.id,
+                    outcome.document_id,
                     message
                 );
-                continue;
+                None
             }
-            Err(error) => return Err(KnowledgeBaseError::DocumentStore(error)),
+            Err(error) => Some(error),
         };
 
-        cached_documents.push(CachedDocumentPayload {
-            id: full_document.id,
-            user_id: LOCAL_USER_ID.to_owned(),
-            title: full_document.title,
-            body: full_document.body,
-            folder_path: full_document.folder_path,
-            banner_image_url: None,
-            deleted_at: None,
-            created_at: full_document.created_at,
-            updated_at: full_document.updated_at,
-            tags: full_document.tags,
-        });
-
-        processed_count += 1;
         if let Some(callback) = progress_callback.as_mut() {
             callback(ProgressEvent::Phase1Progress {
-                current: processed_count,
+                current: index + 1,
                 total: total_to_process,
             });
+        }
+
+        if let Some(error) = fatal_error {
+            return Err(KnowledgeBaseError::DocumentStore(error));
         }
     }
 
