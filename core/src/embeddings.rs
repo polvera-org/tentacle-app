@@ -780,6 +780,118 @@ fn embed_document_text(text: &str) -> Result<Vec<f32>, EmbeddingError> {
         .ok_or(EmbeddingError::EmptyInput)
 }
 
+#[derive(Debug)]
+struct PreparedDocumentEmbeddingWrite {
+    document_id: String,
+    document_embedding: Option<CachedDocumentEmbeddingPayload>,
+    chunk_embeddings: Option<Vec<CachedDocumentChunkEmbeddingPayload>>,
+}
+
+fn prepare_document_embedding_write_for_document(
+    store: &DocumentCacheStore,
+    document: &EmbeddingSyncDocumentPayload,
+    metadata_lookup: Option<&HashMap<String, CachedDocumentEmbeddingMetadataPayload>>,
+) -> Result<PreparedDocumentEmbeddingWrite, EmbeddingError> {
+    let source_text = build_document_embedding_source_text(&document.title, &document.body);
+    let content_hash = compute_document_content_hash(&source_text);
+
+    let should_update_document_embedding = if let Some(lookup) = metadata_lookup {
+        if let Some(existing) = lookup.get(&document.id) {
+            if existing.content_hash == content_hash {
+                log::info!(
+                    "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
+                    document.id
+                );
+                false
+            } else {
+                true
+            }
+        } else {
+            true
+        }
+    } else {
+        let metadata = store
+            .list_document_embedding_metadata()?
+            .into_iter()
+            .find(|item| item.document_id == document.id && item.model == LOCAL_EMBEDDING_MODEL_ID);
+
+        if metadata.as_ref().map(|item| item.content_hash.as_str()) == Some(content_hash.as_str()) {
+            log::info!(
+                "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
+                document.id
+            );
+            false
+        } else {
+            true
+        }
+    };
+
+    let document_embedding = if should_update_document_embedding {
+        let vector = embed_document_text(&source_text)?;
+        Some(CachedDocumentEmbeddingPayload {
+            document_id: document.id.clone(),
+            model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
+            content_hash: content_hash.clone(),
+            vector,
+            updated_at: document.updated_at.clone(),
+        })
+    } else {
+        None
+    };
+
+    let plain_body = crate::text_processing::extract_plain_text_from_tiptap_or_raw(&document.body);
+    let chunks = chunk_document_text(&document.title, &plain_body);
+    let chunk_texts = chunks
+        .iter()
+        .map(|chunk| chunk.text.clone())
+        .collect::<Vec<_>>();
+    let combined_hash = compute_chunk_content_hash(&chunk_texts);
+    let existing_chunk_hash =
+        store.get_document_chunk_embedding_content_hash(&document.id, LOCAL_EMBEDDING_MODEL_ID)?;
+
+    let chunk_embeddings = if existing_chunk_hash.as_deref() == Some(combined_hash.as_str()) {
+        log::info!(
+            "[embedding-sync] skip chunk embeddings for \"{}\" (hash unchanged)",
+            document.id
+        );
+        None
+    } else {
+        let chunk_text_refs = chunks
+            .iter()
+            .map(|chunk| chunk.text.as_str())
+            .collect::<Vec<_>>();
+        let vectors = embed_texts_batch(&chunk_text_refs)?;
+        if vectors.len() != chunks.len() {
+            return Err(EmbeddingError::InvalidOutputShape(format!(
+                "expected {} chunk embeddings, got {}",
+                chunks.len(),
+                vectors.len()
+            )));
+        }
+
+        let payloads = chunks
+            .into_iter()
+            .zip(vectors)
+            .map(|(chunk, vector)| CachedDocumentChunkEmbeddingPayload {
+                document_id: document.id.clone(),
+                chunk_index: chunk.index,
+                chunk_text: chunk.text,
+                content_hash: combined_hash.clone(),
+                model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
+                vector,
+                updated_at: document.updated_at.clone(),
+            })
+            .collect::<Vec<_>>();
+        Some(payloads)
+    };
+
+    Ok(PreparedDocumentEmbeddingWrite {
+        document_id: document.id.clone(),
+        document_embedding,
+        chunk_embeddings,
+    })
+}
+
 pub fn preload_embedding_model<F>(mut on_state: F) -> Result<(), EmbeddingError>
 where
     F: FnMut(EmbeddingModelLoadStatePayload),
@@ -846,92 +958,17 @@ pub fn sync_document_embeddings(
     document: &EmbeddingSyncDocumentPayload,
     metadata_lookup: Option<&HashMap<String, CachedDocumentEmbeddingMetadataPayload>>,
 ) -> Result<(), EmbeddingError> {
-    let source_text = build_document_embedding_source_text(&document.title, &document.body);
-    let content_hash = compute_document_content_hash(&source_text);
+    let prepared_write =
+        prepare_document_embedding_write_for_document(store, document, metadata_lookup)?;
 
-    if let Some(lookup) = metadata_lookup {
-        if let Some(existing) = lookup.get(&document.id) {
-            if existing.content_hash == content_hash {
-                log::info!(
-                    "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
-                    document.id
-                );
-            } else {
-                let vector = embed_document_text(&source_text)?;
-                store.upsert_document_embedding(&CachedDocumentEmbeddingPayload {
-                    document_id: document.id.clone(),
-                    model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
-                    content_hash: content_hash.clone(),
-                    vector,
-                    updated_at: document.updated_at.clone(),
-                })?;
-            }
-        } else {
-            let vector = embed_document_text(&source_text)?;
-            store.upsert_document_embedding(&CachedDocumentEmbeddingPayload {
-                document_id: document.id.clone(),
-                model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
-                content_hash: content_hash.clone(),
-                vector,
-                updated_at: document.updated_at.clone(),
-            })?;
-        }
-    } else {
-        let metadata = store
-            .list_document_embedding_metadata()?
-            .into_iter()
-            .find(|item| item.document_id == document.id && item.model == LOCAL_EMBEDDING_MODEL_ID);
-
-        if metadata.as_ref().map(|item| item.content_hash.as_str()) != Some(content_hash.as_str()) {
-            let vector = embed_document_text(&source_text)?;
-            store.upsert_document_embedding(&CachedDocumentEmbeddingPayload {
-                document_id: document.id.clone(),
-                model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
-                content_hash: content_hash.clone(),
-                vector,
-                updated_at: document.updated_at.clone(),
-            })?;
-        } else {
-            log::info!(
-                "[embedding-sync] skip document embedding for \"{}\" (hash unchanged)",
-                document.id
-            );
-        }
+    if let Some(document_embedding) = prepared_write.document_embedding.as_ref() {
+        store.upsert_document_embedding(document_embedding)?;
     }
 
-    let plain_body = crate::text_processing::extract_plain_text_from_tiptap_or_raw(&document.body);
-    let chunks = chunk_document_text(&document.title, &plain_body);
-    let chunk_texts = chunks
-        .iter()
-        .map(|chunk| chunk.text.clone())
-        .collect::<Vec<_>>();
-    let combined_hash = compute_chunk_content_hash(&chunk_texts);
-    let existing_chunk_hash =
-        store.get_document_chunk_embedding_content_hash(&document.id, LOCAL_EMBEDDING_MODEL_ID)?;
-    if existing_chunk_hash.as_deref() == Some(combined_hash.as_str()) {
-        log::info!(
-            "[embedding-sync] skip chunk embeddings for \"{}\" (hash unchanged)",
-            document.id
-        );
-        return Ok(());
+    if let Some(chunk_embeddings) = prepared_write.chunk_embeddings.as_ref() {
+        store.replace_document_chunk_embeddings(&prepared_write.document_id, chunk_embeddings)?;
     }
 
-    let mut chunk_payloads: Vec<CachedDocumentChunkEmbeddingPayload> =
-        Vec::with_capacity(chunks.len());
-    for chunk in chunks {
-        let vector = embed_document_text(&chunk.text)?;
-        chunk_payloads.push(CachedDocumentChunkEmbeddingPayload {
-            document_id: document.id.clone(),
-            chunk_index: chunk.index,
-            chunk_text: chunk.text,
-            content_hash: combined_hash.clone(),
-            model: LOCAL_EMBEDDING_MODEL_ID.to_owned(),
-            vector,
-            updated_at: document.updated_at.clone(),
-        });
-    }
-
-    store.replace_document_chunk_embeddings(&document.id, &chunk_payloads)?;
     Ok(())
 }
 
