@@ -23,12 +23,28 @@ pub type ProgressCallback = Box<dyn FnMut(ProgressEvent) + Send>;
 
 #[derive(Debug, Clone)]
 pub enum ProgressEvent {
-    Phase1Start { total_documents: usize },
-    Phase1Progress { current: usize, total: usize },
-    Phase1Complete { documents_loaded: usize },
-    Phase2Start { total_documents: usize },
-    Phase2Progress { current: usize, total: usize, document_id: String },
-    Phase2Complete { synced: usize, failed: usize },
+    Phase1Start {
+        total_documents: usize,
+    },
+    Phase1Progress {
+        current: usize,
+        total: usize,
+    },
+    Phase1Complete {
+        documents_loaded: usize,
+    },
+    Phase2Start {
+        total_documents: usize,
+    },
+    Phase2Progress {
+        current: usize,
+        total: usize,
+        document_id: String,
+    },
+    Phase2Complete {
+        synced: usize,
+        failed: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1615,7 +1615,141 @@ mod tests {
             let chunk_hash = store
                 .get_document_chunk_embedding_content_hash(&document_one.id, "test-model")
                 .expect("chunk hash read should succeed");
-            assert!(chunk_hash.is_none(), "chunk writes should also be rolled back");
+            assert!(
+                chunk_hash.is_none(),
+                "chunk writes should also be rolled back"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn apply_embedding_sync_batch_failure_does_not_overwrite_existing_embeddings() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+
+            let document_one = CachedDocumentPayload {
+                id: "doc-existing-1".to_string(),
+                user_id: "user-1".to_string(),
+                title: "Doc existing 1".to_string(),
+                body: "Body 1".to_string(),
+                folder_path: "".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:00Z".to_string(),
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+                tags: vec![],
+            };
+            store
+                .upsert_document(&document_one)
+                .expect("first document upsert should succeed");
+
+            let document_two = CachedDocumentPayload {
+                id: "doc-existing-2".to_string(),
+                user_id: "user-1".to_string(),
+                title: "Doc existing 2".to_string(),
+                body: "Body 2".to_string(),
+                folder_path: "".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:01Z".to_string(),
+                updated_at: "2026-02-13T00:00:01Z".to_string(),
+                tags: vec![],
+            };
+            store
+                .upsert_document(&document_two)
+                .expect("second document upsert should succeed");
+
+            let initial_document_hash = "existing-doc-hash";
+            let initial_chunk_hash = "existing-chunk-hash";
+            store
+                .upsert_document_embedding(&CachedDocumentEmbeddingPayload {
+                    document_id: document_one.id.clone(),
+                    model: "test-model".to_string(),
+                    content_hash: initial_document_hash.to_string(),
+                    vector: vec![0.2; EMBEDDING_VECTOR_DIMENSIONS],
+                    updated_at: "2026-02-13T00:00:02Z".to_string(),
+                })
+                .expect("seed embedding upsert should succeed");
+            store
+                .replace_document_chunk_embeddings(
+                    &document_one.id,
+                    &[CachedDocumentChunkEmbeddingPayload {
+                        document_id: document_one.id.clone(),
+                        chunk_index: 0,
+                        chunk_text: "seed chunk".to_string(),
+                        content_hash: initial_chunk_hash.to_string(),
+                        model: "test-model".to_string(),
+                        vector: vec![0.4; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:02Z".to_string(),
+                    }],
+                )
+                .expect("seed chunk embedding write should succeed");
+
+            let payloads = vec![
+                CachedDocumentEmbeddingSyncBatchPayload {
+                    document_id: document_one.id.clone(),
+                    document_embedding: Some(CachedDocumentEmbeddingPayload {
+                        document_id: document_one.id.clone(),
+                        model: "test-model".to_string(),
+                        content_hash: "new-doc-hash".to_string(),
+                        vector: vec![0.8; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:03Z".to_string(),
+                    }),
+                    chunk_embeddings: Some(vec![CachedDocumentChunkEmbeddingPayload {
+                        document_id: document_one.id.clone(),
+                        chunk_index: 0,
+                        chunk_text: "replacement chunk".to_string(),
+                        content_hash: "new-chunk-hash".to_string(),
+                        model: "test-model".to_string(),
+                        vector: vec![0.6; EMBEDDING_VECTOR_DIMENSIONS],
+                        updated_at: "2026-02-13T00:00:03Z".to_string(),
+                    }]),
+                },
+                CachedDocumentEmbeddingSyncBatchPayload {
+                    document_id: document_two.id.clone(),
+                    document_embedding: Some(CachedDocumentEmbeddingPayload {
+                        document_id: document_two.id.clone(),
+                        model: "test-model".to_string(),
+                        content_hash: "invalid-doc-hash".to_string(),
+                        vector: vec![1.0; EMBEDDING_VECTOR_DIMENSIONS - 1],
+                        updated_at: "2026-02-13T00:00:03Z".to_string(),
+                    }),
+                    chunk_embeddings: None,
+                },
+            ];
+
+            let result = store.apply_embedding_sync_batch(&payloads);
+            assert!(matches!(result, Err(DocumentCacheError::Validation(_))));
+
+            let persisted_doc_one = store
+                .list_document_embedding_metadata()
+                .expect("metadata read should succeed")
+                .into_iter()
+                .find(|entry| entry.document_id == document_one.id && entry.model == "test-model")
+                .expect("existing metadata should still be present");
+            assert_eq!(persisted_doc_one.content_hash, initial_document_hash);
+            assert_eq!(persisted_doc_one.updated_at, "2026-02-13T00:00:02Z");
+
+            let persisted_doc_one_chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_one.id, "test-model")
+                .expect("doc one chunk hash read should succeed");
+            assert_eq!(
+                persisted_doc_one_chunk_hash.as_deref(),
+                Some(initial_chunk_hash)
+            );
+
+            let persisted_doc_two_chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_two.id, "test-model")
+                .expect("doc two chunk hash read should succeed");
+            assert!(
+                persisted_doc_two_chunk_hash.is_none(),
+                "invalid payload should not create chunk metadata for other documents"
+            );
         }
 
         let _ = std::fs::remove_dir_all(temp_dir);

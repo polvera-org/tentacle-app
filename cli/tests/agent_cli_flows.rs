@@ -294,6 +294,14 @@ fn init_reindex_search_and_read_with_nested_fixture_docs() {
     let reindex_payload = env.run_json_success(["reindex"]);
     assert_eq!(reindex_payload["status"], "completed");
     assert_eq!(reindex_payload["documents_indexed"].as_u64(), Some(2));
+    assert!(
+        reindex_payload["embeddings_synced"].as_u64().is_some(),
+        "reindex JSON payload must include numeric embeddings_synced"
+    );
+    assert!(
+        reindex_payload["embeddings_failed"].as_u64().is_some(),
+        "reindex JSON payload must include numeric embeddings_failed"
+    );
 
     let search_payload = env.run_json_success([
         "search",

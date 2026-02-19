@@ -825,9 +825,7 @@ fn plan_document_embedding_sync_for_document(
             .into_iter()
             .find(|item| item.document_id == document.id && item.model == LOCAL_EMBEDDING_MODEL_ID);
 
-        metadata
-            .as_ref()
-            .map(|item| item.content_hash.as_str())
+        metadata.as_ref().map(|item| item.content_hash.as_str())
             != Some(document_content_hash.as_str())
     };
 
@@ -1071,9 +1069,7 @@ pub fn sync_documents_embeddings_batch_with_progress(
     let mut attempted_changed_count = 0;
 
     while !changed_documents.is_empty() {
-        let batch_len = changed_documents
-            .len()
-            .min(EMBEDDING_SYNC_WRITE_BATCH_SIZE);
+        let batch_len = changed_documents.len().min(EMBEDDING_SYNC_WRITE_BATCH_SIZE);
         let batch = changed_documents
             .drain(..batch_len)
             .collect::<Vec<ChangedDocumentEmbeddingSyncCandidate<'_>>>();
@@ -1275,14 +1271,39 @@ pub fn hybrid_search_documents_by_query(
 
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use ort::tensor::{Shape, SymbolicDimensions, TensorElementType};
     use ort::value::ValueType;
 
-    use super::{
-        build_attention_mask_with_past, embed_texts_batch, infer_past_kv_shape,
-        infer_past_sequence_length, l2_normalize, pool_embedding, EmbeddingError, ModelInputSpec,
-        LOCAL_EMBEDDING_DIMENSIONS, PAST_KEY_VALUES_NAME,
+    use crate::document_cache::{
+        CachedDocumentChunkEmbeddingPayload, CachedDocumentEmbeddingPayload, CachedDocumentPayload,
+        DocumentCacheStore,
     };
+    use crate::text_processing::{
+        build_document_embedding_source_text, chunk_document_text,
+        extract_plain_text_from_tiptap_or_raw,
+    };
+
+    use super::{
+        build_attention_mask_with_past, compute_chunk_content_hash, compute_document_content_hash,
+        embed_texts_batch, infer_past_kv_shape, infer_past_sequence_length, l2_normalize,
+        pool_embedding, sync_documents_embeddings_batch, EmbeddingError,
+        EmbeddingSyncDocumentPayload, ModelInputSpec, LOCAL_EMBEDDING_DIMENSIONS,
+        LOCAL_EMBEDDING_MODEL_ID, PAST_KEY_VALUES_NAME,
+    };
+
+    fn unique_temp_path() -> std::path::PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after unix epoch")
+            .as_nanos();
+        let thread_id = format!("{:?}", std::thread::current().id())
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+        std::env::temp_dir().join(format!("tentacle-embeddings-test-{timestamp}-{thread_id}"))
+    }
 
     #[test]
     fn l2_normalize_zero_vector_returns_zero_vector() {
@@ -1367,5 +1388,106 @@ mod tests {
     fn embed_texts_batch_rejects_blank_strings() {
         let error = embed_texts_batch(&["hello", "   "]).expect_err("blank input should fail");
         assert!(matches!(error, EmbeddingError::EmptyInput));
+    }
+
+    #[test]
+    fn sync_documents_embeddings_batch_skips_unchanged_documents_without_rewriting_embeddings() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let document_id = "doc-unchanged-prefilter".to_string();
+            let title = "Unchanged document";
+            let body = "This content should stay hash-identical between reindex runs.";
+            let initial_updated_at = "2026-02-13T00:00:00Z";
+
+            store
+                .upsert_document(&CachedDocumentPayload {
+                    id: document_id.clone(),
+                    user_id: "user-1".to_string(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: initial_updated_at.to_string(),
+                    updated_at: initial_updated_at.to_string(),
+                    tags: vec![],
+                })
+                .expect("document upsert should succeed");
+
+            let source_text = build_document_embedding_source_text(title, body);
+            let document_hash = compute_document_content_hash(&source_text);
+            let plain_body = extract_plain_text_from_tiptap_or_raw(body);
+            let chunks = chunk_document_text(title, &plain_body);
+            let chunk_hash = compute_chunk_content_hash(
+                &chunks
+                    .iter()
+                    .map(|chunk| chunk.text.clone())
+                    .collect::<Vec<_>>(),
+            );
+
+            store
+                .upsert_document_embedding(&CachedDocumentEmbeddingPayload {
+                    document_id: document_id.clone(),
+                    model: LOCAL_EMBEDDING_MODEL_ID.to_string(),
+                    content_hash: document_hash.clone(),
+                    vector: vec![0.25; LOCAL_EMBEDDING_DIMENSIONS],
+                    updated_at: initial_updated_at.to_string(),
+                })
+                .expect("seed document embedding should succeed");
+
+            let chunk_payloads = chunks
+                .iter()
+                .map(|chunk| CachedDocumentChunkEmbeddingPayload {
+                    document_id: document_id.clone(),
+                    chunk_index: chunk.index,
+                    chunk_text: chunk.text.clone(),
+                    content_hash: chunk_hash.clone(),
+                    model: LOCAL_EMBEDDING_MODEL_ID.to_string(),
+                    vector: vec![0.5; LOCAL_EMBEDDING_DIMENSIONS],
+                    updated_at: initial_updated_at.to_string(),
+                })
+                .collect::<Vec<_>>();
+            store
+                .replace_document_chunk_embeddings(&document_id, &chunk_payloads)
+                .expect("seed chunk embeddings should succeed");
+
+            let sync_result = sync_documents_embeddings_batch(
+                &mut store,
+                &[EmbeddingSyncDocumentPayload {
+                    id: document_id.clone(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    updated_at: "2026-02-13T00:05:00Z".to_string(),
+                }],
+            )
+            .expect("unchanged document sync should succeed");
+
+            assert_eq!(sync_result.synced_count, 1);
+            assert_eq!(sync_result.failed_count, 0);
+
+            let persisted = store
+                .list_document_embedding_metadata()
+                .expect("metadata read should succeed")
+                .into_iter()
+                .find(|entry| {
+                    entry.document_id == document_id && entry.model == LOCAL_EMBEDDING_MODEL_ID
+                })
+                .expect("seeded document embedding metadata should exist");
+            assert_eq!(persisted.content_hash, document_hash);
+            assert_eq!(
+                persisted.updated_at, initial_updated_at,
+                "prefiltered documents should not rewrite embedding metadata"
+            );
+
+            let persisted_chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_id, LOCAL_EMBEDDING_MODEL_ID)
+                .expect("chunk hash read should succeed");
+            assert_eq!(persisted_chunk_hash.as_deref(), Some(chunk_hash.as_str()));
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }
