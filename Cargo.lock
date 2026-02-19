@@ -5009,6 +5009,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
+ "indicatif",
  "predicates",
  "reqwest 0.12.28",
  "serde",

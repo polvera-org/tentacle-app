@@ -2,6 +2,7 @@ mod auto_tagging;
 mod cli;
 mod errors;
 mod output;
+mod progress;
 
 use clap::Parser;
 use serde::Serialize;
@@ -460,8 +461,19 @@ fn handle_reindex(args: &ReindexArgs, json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
     let folder_filter = normalize_folder_filter(args.folder.as_deref())?;
     let started = Instant::now();
-    let result = KnowledgeBaseService::reindex(&documents_folder, folder_filter.as_deref())
-        .map_err(map_knowledge_base_error)?;
+
+    let progress_callback = if json {
+        None
+    } else {
+        crate::progress::create_reindex_progress_callback()
+    };
+
+    let result = KnowledgeBaseService::reindex_with_progress(
+        &documents_folder,
+        folder_filter.as_deref(),
+        progress_callback,
+    )
+    .map_err(map_knowledge_base_error)?;
     let duration_ms = duration_ms(started.elapsed());
 
     if json {
@@ -680,9 +692,30 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
     )
     .map_err(map_document_store_error)?;
 
+    let spinner = if !json {
+        crate::progress::create_spinner_with_message("Auto-tagging document...")
+    } else {
+        None
+    };
+
     let auto_tagging_outcome = apply_after_create(&documents_folder, &config_store, created);
     let created = auto_tagging_outcome.document;
+
+    if let Some(spinner) = spinner {
+        spinner.finish_and_clear();
+    }
+
+    let sync_spinner = if !json {
+        crate::progress::create_spinner_with_message("Creating embeddings...")
+    } else {
+        None
+    };
+
     sync_cache_for_document_folder(&documents_folder, &created.folder_path)?;
+
+    if let Some(spinner) = sync_spinner {
+        spinner.finish_and_clear();
+    }
 
     let payload = CreateResponsePayload {
         id: created.id,

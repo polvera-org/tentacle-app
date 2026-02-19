@@ -916,12 +916,26 @@ pub fn sync_documents_embeddings_batch(
     store: &mut DocumentCacheStore,
     documents: &[EmbeddingSyncDocumentPayload],
 ) -> Result<EmbeddingBatchSyncResultPayload, EmbeddingError> {
+    sync_documents_embeddings_batch_with_progress(store, documents, None)
+}
+
+pub fn sync_documents_embeddings_batch_with_progress(
+    store: &mut DocumentCacheStore,
+    documents: &[EmbeddingSyncDocumentPayload],
+    mut progress_callback: Option<&mut crate::knowledge_base::ProgressCallback>,
+) -> Result<EmbeddingBatchSyncResultPayload, EmbeddingError> {
     let metadata_lookup = build_metadata_lookup(store.list_document_embedding_metadata()?);
+
+    if let Some(callback) = progress_callback.as_mut() {
+        callback(crate::knowledge_base::ProgressEvent::Phase2Start {
+            total_documents: documents.len(),
+        });
+    }
 
     let mut synced_count = 0;
     let mut failed_count = 0;
 
-    for document in documents {
+    for (index, document) in documents.iter().enumerate() {
         match sync_document_embeddings(store, document, Some(&metadata_lookup)) {
             Ok(()) => synced_count += 1,
             Err(error) => {
@@ -933,6 +947,21 @@ pub fn sync_documents_embeddings_batch(
                 );
             }
         }
+
+        if let Some(callback) = progress_callback.as_mut() {
+            callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
+                current: index + 1,
+                total: documents.len(),
+                document_id: document.id.clone(),
+            });
+        }
+    }
+
+    if let Some(callback) = progress_callback.as_mut() {
+        callback(crate::knowledge_base::ProgressEvent::Phase2Complete {
+            synced: synced_count,
+            failed: failed_count,
+        });
     }
 
     Ok(EmbeddingBatchSyncResultPayload {

@@ -11,12 +11,24 @@ use crate::document_cache::{CachedDocumentPayload, DocumentCacheError, DocumentC
 use crate::document_folders::{DocumentFoldersError, DocumentFoldersService};
 use crate::document_store::{self, DocumentStoreError};
 use crate::embeddings::{
-    hybrid_search_documents_by_query, sync_documents_embeddings_batch, EmbeddingError,
-    EmbeddingSyncDocumentPayload,
+    hybrid_search_documents_by_query, sync_documents_embeddings_batch_with_progress,
+    EmbeddingError, EmbeddingSyncDocumentPayload,
 };
 
 const CACHE_DB_FILE_NAME: &str = ".document-data.db";
 const LOCAL_USER_ID: &str = "local";
+
+pub type ProgressCallback = Box<dyn FnMut(ProgressEvent) + Send>;
+
+#[derive(Debug, Clone)]
+pub enum ProgressEvent {
+    Phase1Start { total_documents: usize },
+    Phase1Progress { current: usize, total: usize },
+    Phase1Complete { documents_loaded: usize },
+    Phase2Start { total_documents: usize },
+    Phase2Progress { current: usize, total: usize, document_id: String },
+    Phase2Complete { synced: usize, failed: usize },
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -95,10 +107,22 @@ impl KnowledgeBaseService {
         documents_folder: &Path,
         folder_filter: Option<&str>,
     ) -> Result<ReindexResultPayload, KnowledgeBaseError> {
+        Self::reindex_with_progress(documents_folder, folder_filter, None)
+    }
+
+    pub fn reindex_with_progress(
+        documents_folder: &Path,
+        folder_filter: Option<&str>,
+        mut progress_callback: Option<ProgressCallback>,
+    ) -> Result<ReindexResultPayload, KnowledgeBaseError> {
         let normalized_filter = normalize_optional_folder_filter(folder_filter)?;
         let mut store = DocumentCacheStore::new(documents_folder)?;
 
-        let next_documents = load_cached_documents(documents_folder, normalized_filter.as_deref())?;
+        let next_documents = load_cached_documents_with_progress(
+            documents_folder,
+            normalized_filter.as_deref(),
+            progress_callback.as_mut(),
+        )?;
         let final_documents = if let Some(folder_filter) = normalized_filter.as_deref() {
             let mut retained = store.list_documents()?;
             retained
@@ -135,7 +159,11 @@ impl KnowledgeBaseService {
                 updated_at: document.updated_at.clone(),
             })
             .collect::<Vec<_>>();
-        let embedding_result = sync_documents_embeddings_batch(&mut store, &embedding_documents)?;
+        let embedding_result = sync_documents_embeddings_batch_with_progress(
+            &mut store,
+            &embedding_documents,
+            progress_callback.as_mut(),
+        )?;
 
         Ok(ReindexResultPayload {
             documents_indexed: next_documents.len(),
@@ -260,8 +288,33 @@ fn load_cached_documents(
     documents_folder: &Path,
     folder_filter: Option<&str>,
 ) -> Result<Vec<CachedDocumentPayload>, KnowledgeBaseError> {
+    load_cached_documents_with_progress(documents_folder, folder_filter, None)
+}
+
+fn load_cached_documents_with_progress(
+    documents_folder: &Path,
+    folder_filter: Option<&str>,
+    mut progress_callback: Option<&mut ProgressCallback>,
+) -> Result<Vec<CachedDocumentPayload>, KnowledgeBaseError> {
     let listed_documents = document_store::list_documents(documents_folder)?;
+
+    // Count total documents to process for progress reporting
+    let total_to_process = if let Some(folder) = folder_filter {
+        listed_documents.iter()
+            .filter(|doc| folder_matches_filter(&doc.folder_path, folder))
+            .count()
+    } else {
+        listed_documents.len()
+    };
+
+    if let Some(callback) = progress_callback.as_mut() {
+        callback(ProgressEvent::Phase1Start {
+            total_documents: total_to_process,
+        });
+    }
+
     let mut cached_documents: Vec<CachedDocumentPayload> = Vec::new();
+    let mut processed_count = 0;
 
     for document in listed_documents {
         if folder_filter.is_some_and(|folder| !folder_matches_filter(&document.folder_path, folder))
@@ -301,6 +354,20 @@ fn load_cached_documents(
             created_at: full_document.created_at,
             updated_at: full_document.updated_at,
             tags: full_document.tags,
+        });
+
+        processed_count += 1;
+        if let Some(callback) = progress_callback.as_mut() {
+            callback(ProgressEvent::Phase1Progress {
+                current: processed_count,
+                total: total_to_process,
+            });
+        }
+    }
+
+    if let Some(callback) = progress_callback.as_mut() {
+        callback(ProgressEvent::Phase1Complete {
+            documents_loaded: cached_documents.len(),
         });
     }
 
