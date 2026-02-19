@@ -47,14 +47,16 @@ pub fn create_reindex_progress_callback() -> Option<Box<dyn FnMut(ProgressEvent)
                 if let Some(bar) = &state.syncing_bar {
                     bar.set_length(total_documents as u64);
                     bar.set_position(0);
+                    bar.enable_steady_tick(std::time::Duration::from_millis(80));
                 } else {
                     let bar = state.multi.add(ProgressBar::new(total_documents as u64));
                     bar.set_style(
                         ProgressStyle::default_bar()
-                            .template("[2/2] Syncing embeddings... [{bar:40}] {pos}/{len}")
+                            .template("[2/2] {spinner:.cyan} Syncing embeddings... [{bar:40}] {pos}/{len}")
                             .unwrap()
                             .progress_chars("━━╸"),
                     );
+                    bar.enable_steady_tick(std::time::Duration::from_millis(80));
                     state.syncing_bar = Some(bar);
                 }
             }
