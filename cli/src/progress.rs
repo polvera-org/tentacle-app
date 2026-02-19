@@ -44,14 +44,19 @@ pub fn create_reindex_progress_callback() -> Option<Box<dyn FnMut(ProgressEvent)
                 }
             }
             ProgressEvent::Phase2Start { total_documents } => {
-                let bar = state.multi.add(ProgressBar::new(total_documents as u64));
-                bar.set_style(
-                    ProgressStyle::default_bar()
-                        .template("[2/2] Syncing embeddings... [{bar:40}] {pos}/{len}")
-                        .unwrap()
-                        .progress_chars("━━╸"),
-                );
-                state.syncing_bar = Some(bar);
+                if let Some(bar) = &state.syncing_bar {
+                    bar.set_length(total_documents as u64);
+                    bar.set_position(0);
+                } else {
+                    let bar = state.multi.add(ProgressBar::new(total_documents as u64));
+                    bar.set_style(
+                        ProgressStyle::default_bar()
+                            .template("[2/2] Syncing embeddings... [{bar:40}] {pos}/{len}")
+                            .unwrap()
+                            .progress_chars("━━╸"),
+                    );
+                    state.syncing_bar = Some(bar);
+                }
             }
             ProgressEvent::Phase2Progress {
                 current,

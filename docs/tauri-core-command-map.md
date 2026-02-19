@@ -52,7 +52,7 @@ These are the commands the frontend now uses for the migrated core-owned flow:
 
 Notes:
 
-- Core embedding inference is ONNX-based (`Qwen3-Embedding-0.6B-ONNX`) and executed fully in Rust.
+- Core embedding inference is ONNX-based (`all-MiniLM-L6-v2-ONNX`) and executed fully in Rust.
 - These high-level commands are the preferred surface for both desktop and future CLI behavior.
 
 ## 5. Document Folder Commands

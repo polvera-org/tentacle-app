@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const CACHE_DB_FILE_NAME: &str = ".document-data.db";
-pub const EMBEDDING_VECTOR_DIMENSIONS: usize = 1024;
+pub const EMBEDDING_VECTOR_DIMENSIONS: usize = 384;
 
 static SQLITE_VEC_EXTENSION_INIT: Once = Once::new();
 
@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_document_embeddings_meta_content_hash ON document
 CREATE INDEX IF NOT EXISTS idx_document_embeddings_meta_document_id ON document_embeddings_meta(document_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS document_embeddings_vec USING vec0(
-  embedding float[1024]
+  embedding float[384]
 );
 
 CREATE TRIGGER IF NOT EXISTS trg_document_embeddings_meta_delete_vec
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS document_chunk_embeddings_meta (
 
 CREATE INDEX IF NOT EXISTS idx_chunk_meta_doc_id ON document_chunk_embeddings_meta(document_id);
 
-CREATE VIRTUAL TABLE IF NOT EXISTS document_chunk_embeddings_vec USING vec0(embedding float[1024]);
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunk_embeddings_vec USING vec0(embedding float[384]);
 
 CREATE TRIGGER IF NOT EXISTS trg_chunk_meta_delete_vec
 AFTER DELETE ON document_chunk_embeddings_meta

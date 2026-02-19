@@ -69,7 +69,7 @@ How it behaves:
 
 Current model id:
 
-- `onnx-community/Qwen3-Embedding-0.6B-ONNX`
+- `onnx-community/all-MiniLM-L6-v2-ONNX`
 
 Runtime behavior:
 
@@ -78,7 +78,7 @@ Runtime behavior:
 3. Encode text with tokenizer in Rust.
 4. Run ONNX inference in Rust.
 5. Apply last-token pooling and L2 normalization.
-6. Enforce 1024-dimensional vectors for cache compatibility.
+6. Enforce 384-dimensional vectors for cache compatibility.
 
 This means desktop app and future CLI use the exact same embedding implementation.
 

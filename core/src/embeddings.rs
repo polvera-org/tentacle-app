@@ -25,10 +25,10 @@ use crate::text_processing::{
     DocumentChunk,
 };
 
-const HF_EMBEDDING_REPO_ID: &str = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
+const HF_EMBEDDING_REPO_ID: &str = "onnx-community/all-MiniLM-L6-v2-ONNX";
 pub const LOCAL_EMBEDDING_MODEL_ID: &str = HF_EMBEDDING_REPO_ID;
 pub const LOCAL_EMBEDDING_DIMENSIONS: usize = EMBEDDING_VECTOR_DIMENSIONS;
-const MAX_SEQUENCE_LENGTH: usize = 8192;
+const MAX_SEQUENCE_LENGTH: usize = 512;
 const INPUT_IDS_NAME: &str = "input_ids";
 const ATTENTION_MASK_NAME: &str = "attention_mask";
 const TOKEN_TYPE_IDS_NAME: &str = "token_type_ids";
@@ -37,6 +37,7 @@ const PAST_KEY_VALUES_NAME: &str = "past_key_values.";
 const USE_CACHE_BRANCH_NAME: &str = "use_cache_branch";
 const CACHE_POSITION_NAME: &str = "cache_position";
 const EMBEDDING_SYNC_WRITE_BATCH_SIZE: usize = 75;
+const EMBEDDING_INFERENCE_MICRO_BATCH_SIZE: usize = 8;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -269,51 +270,99 @@ impl EmbeddingEngine {
         EMBEDDING_ENGINE.get_or_try_init(|| Self::initialize().map(Mutex::new))
     }
 
-    fn embed_text(&mut self, text: &str) -> Result<Vec<f32>, EmbeddingError> {
-        let normalized = text.trim();
-        if normalized.is_empty() {
+    fn embed_texts(&mut self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut encoded_texts = Vec::with_capacity(texts.len());
+        for text in texts {
+            let normalized = text.trim();
+            if normalized.is_empty() {
+                return Err(EmbeddingError::EmptyInput);
+            }
+
+            let mut encoding = self
+                .tokenizer
+                .encode(normalized, true)
+                .map_err(|error| EmbeddingError::Tokenization(error.to_string()))?;
+            if encoding.get_ids().is_empty() {
+                return Err(EmbeddingError::EmptyInput);
+            }
+
+            if encoding.get_ids().len() > MAX_SEQUENCE_LENGTH {
+                encoding.truncate(MAX_SEQUENCE_LENGTH, 0, TruncationDirection::Right);
+            }
+
+            encoded_texts.push(encoding);
+        }
+
+        let batch_size = encoded_texts.len();
+        let sequence_lengths = encoded_texts
+            .iter()
+            .map(|encoding| encoding.get_ids().len())
+            .collect::<Vec<_>>();
+        let sequence_length = sequence_lengths.iter().copied().max().unwrap_or(0);
+        if sequence_length == 0 {
             return Err(EmbeddingError::EmptyInput);
         }
 
-        let mut encoding = self
+        let pad_token_id = self
             .tokenizer
-            .encode(normalized, true)
-            .map_err(|error| EmbeddingError::Tokenization(error.to_string()))?;
+            .get_padding()
+            .map(|padding| i64::from(padding.pad_id))
+            .unwrap_or(0_i64);
 
-        if encoding.get_ids().is_empty() {
-            return Err(EmbeddingError::EmptyInput);
-        }
-
-        if encoding.get_ids().len() > MAX_SEQUENCE_LENGTH {
-            encoding.truncate(MAX_SEQUENCE_LENGTH, 0, TruncationDirection::Right);
-        }
-
-        let input_ids = encoding
-            .get_ids()
-            .iter()
-            .map(|value| *value as i64)
-            .collect::<Vec<_>>();
-        let attention_mask = encoding
-            .get_attention_mask()
-            .iter()
-            .map(|value| *value as i64)
-            .collect::<Vec<_>>();
-        let type_ids = encoding
-            .get_type_ids()
-            .iter()
-            .map(|value| *value as i64)
-            .collect::<Vec<_>>();
-
-        let batch_size = 1_usize;
-        let sequence_length = input_ids.len();
         let past_sequence_length = infer_past_sequence_length(&self.input_specs, batch_size);
         let total_sequence_length = sequence_length + past_sequence_length;
-        let attention_mask_with_past = build_attention_mask_with_past(
-            &attention_mask,
-            sequence_length,
-            total_sequence_length,
-            past_sequence_length,
-        );
+
+        let mut input_ids: Vec<i64> = Vec::with_capacity(batch_size * sequence_length);
+        let mut attention_masks: Vec<Vec<i64>> = Vec::with_capacity(batch_size);
+        let mut attention_masks_with_past: Vec<i64> =
+            Vec::with_capacity(batch_size * total_sequence_length);
+        let mut token_type_ids: Vec<i64> = Vec::with_capacity(batch_size * sequence_length);
+
+        for (encoding, current_sequence_length) in encoded_texts.iter().zip(sequence_lengths) {
+            let ids = encoding.get_ids();
+            let masks = encoding.get_attention_mask();
+            let type_ids = encoding.get_type_ids();
+
+            let mut attention_mask_row = vec![0_i64; sequence_length];
+            for token_index in 0..sequence_length {
+                if token_index < current_sequence_length {
+                    input_ids.push(i64::from(ids[token_index]));
+                    attention_mask_row[token_index] =
+                        i64::from(*masks.get(token_index).unwrap_or(&1));
+
+                    let type_id = if type_ids.len() == current_sequence_length {
+                        i64::from(type_ids[token_index])
+                    } else {
+                        0_i64
+                    };
+                    token_type_ids.push(type_id);
+                } else {
+                    input_ids.push(pad_token_id);
+                    token_type_ids.push(0_i64);
+                }
+            }
+
+            let attention_mask_with_past = build_attention_mask_with_past(
+                &attention_mask_row,
+                sequence_length,
+                total_sequence_length,
+                past_sequence_length,
+            );
+            attention_masks_with_past.extend(attention_mask_with_past);
+            attention_masks.push(attention_mask_row);
+        }
+
+        let cache_position = (past_sequence_length..(past_sequence_length + sequence_length))
+            .map(|idx| idx as i64)
+            .collect::<Vec<_>>();
+        let mut position_ids = Vec::with_capacity(batch_size * sequence_length);
+        for _ in 0..batch_size {
+            position_ids.extend(cache_position.iter().copied());
+        }
 
         let mut inputs: Vec<(String, DynTensor)> = Vec::with_capacity(self.input_specs.len());
         for spec in &self.input_specs {
@@ -324,31 +373,20 @@ impl EmbeddingEngine {
             } else if key.contains(ATTENTION_MASK_NAME) {
                 Tensor::from_array((
                     [batch_size, total_sequence_length],
-                    attention_mask_with_past.clone(),
+                    attention_masks_with_past.clone(),
                 ))?
                 .upcast()
             } else if key.contains(TOKEN_TYPE_IDS_NAME) {
-                let token_type_ids = if type_ids.len() == sequence_length {
-                    type_ids.clone()
-                } else {
-                    vec![0_i64; sequence_length]
-                };
-                Tensor::from_array(([batch_size, sequence_length], token_type_ids))?.upcast()
+                Tensor::from_array(([batch_size, sequence_length], token_type_ids.clone()))?
+                    .upcast()
             } else if key.contains(POSITION_IDS_NAME) {
-                let position_ids = (past_sequence_length..(past_sequence_length + sequence_length))
-                    .map(|idx| idx as i64)
-                    .collect::<Vec<_>>();
-                Tensor::from_array(([batch_size, sequence_length], position_ids))?.upcast()
+                Tensor::from_array(([batch_size, sequence_length], position_ids.clone()))?.upcast()
             } else if key.starts_with(PAST_KEY_VALUES_NAME) {
                 build_empty_past_kv_tensor(spec, batch_size)?
             } else if key.contains(USE_CACHE_BRANCH_NAME) {
                 build_use_cache_branch_tensor(spec)?
             } else if key.contains(CACHE_POSITION_NAME) {
-                let cache_position = (past_sequence_length
-                    ..(past_sequence_length + sequence_length))
-                    .map(|idx| idx as i64)
-                    .collect::<Vec<_>>();
-                Tensor::from_array(([sequence_length], cache_position))?.upcast()
+                Tensor::from_array(([sequence_length], cache_position.clone()))?.upcast()
             } else {
                 return Err(EmbeddingError::UnsupportedModelInput(spec.name.clone()));
             };
@@ -365,13 +403,18 @@ impl EmbeddingEngine {
             return Err(EmbeddingError::MissingModelOutput);
         };
         let (shape, data) = output_tensor.try_extract_tensor::<f32>()?;
-        let pooled = pool_embedding(data, shape, &attention_mask)?;
+        let pooled = pool_embeddings(data, shape, &attention_masks)?;
 
-        if pooled.len() != LOCAL_EMBEDDING_DIMENSIONS {
-            return Err(EmbeddingError::InvalidEmbeddingLength(pooled.len()));
+        let mut normalized_embeddings = Vec::with_capacity(pooled.len());
+        for embedding in pooled {
+            if embedding.len() != LOCAL_EMBEDDING_DIMENSIONS {
+                return Err(EmbeddingError::InvalidEmbeddingLength(embedding.len()));
+            }
+
+            normalized_embeddings.push(l2_normalize(embedding));
         }
 
-        Ok(l2_normalize(pooled))
+        Ok(normalized_embeddings)
     }
 }
 
@@ -657,11 +700,16 @@ fn last_active_token_index(attention_mask: &[i64], sequence_length: usize) -> us
     sequence_length.saturating_sub(1)
 }
 
-fn pool_embedding(
+fn pool_embeddings(
     output_data: &[f32],
     output_shape: &[i64],
-    attention_mask: &[i64],
-) -> Result<Vec<f32>, EmbeddingError> {
+    attention_masks: &[Vec<i64>],
+) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+    let batch_size = attention_masks.len();
+    if batch_size == 0 {
+        return Ok(Vec::new());
+    }
+
     match output_shape.len() {
         2 => {
             let first_dim = positive_dim(output_shape, 0, "first")?;
@@ -677,16 +725,32 @@ fn pool_embedding(
                 )));
             }
 
-            let token_index = if first_dim == 1 || attention_mask.len() != first_dim {
-                0
+            if first_dim == batch_size {
+                let mut pooled = Vec::with_capacity(batch_size);
+                for batch_index in 0..batch_size {
+                    let start = batch_index.checked_mul(hidden_size).ok_or_else(|| {
+                        EmbeddingError::InvalidOutputShape(format!(
+                            "shape is too large: {output_shape:?}"
+                        ))
+                    })?;
+                    let end = start + hidden_size;
+                    pooled.push(output_data[start..end].to_vec());
+                }
+                Ok(pooled)
+            } else if batch_size == 1 {
+                let token_index = last_active_token_index(&attention_masks[0], first_dim);
+                let start = token_index.checked_mul(hidden_size).ok_or_else(|| {
+                    EmbeddingError::InvalidOutputShape(format!(
+                        "shape is too large: {output_shape:?}"
+                    ))
+                })?;
+                let end = start + hidden_size;
+                Ok(vec![output_data[start..end].to_vec()])
             } else {
-                last_active_token_index(attention_mask, first_dim)
-            };
-            let start = token_index.checked_mul(hidden_size).ok_or_else(|| {
-                EmbeddingError::InvalidOutputShape(format!("shape is too large: {output_shape:?}"))
-            })?;
-            let end = start + hidden_size;
-            Ok(output_data[start..end].to_vec())
+                Err(EmbeddingError::InvalidOutputShape(format!(
+                    "rank-2 output first dimension {first_dim} does not match batch size {batch_size}"
+                )))
+            }
         }
         3 => {
             let batch_size = positive_dim(output_shape, 0, "batch")?;
@@ -708,12 +772,40 @@ fn pool_embedding(
                 )));
             }
 
-            let token_index = last_active_token_index(attention_mask, sequence_length);
-            let start = token_index.checked_mul(hidden_size).ok_or_else(|| {
+            if batch_size != attention_masks.len() {
+                return Err(EmbeddingError::InvalidOutputShape(format!(
+                    "rank-3 output batch dimension {batch_size} does not match attention mask rows {}",
+                    attention_masks.len()
+                )));
+            }
+
+            let row_width = sequence_length.checked_mul(hidden_size).ok_or_else(|| {
                 EmbeddingError::InvalidOutputShape(format!("shape is too large: {output_shape:?}"))
             })?;
-            let end = start + hidden_size;
-            Ok(output_data[start..end].to_vec())
+            let mut pooled = Vec::with_capacity(batch_size);
+            for (batch_index, attention_mask_row) in attention_masks.iter().enumerate() {
+                let token_index = last_active_token_index(attention_mask_row, sequence_length);
+                let row_offset = batch_index.checked_mul(row_width).ok_or_else(|| {
+                    EmbeddingError::InvalidOutputShape(format!(
+                        "shape is too large: {output_shape:?}"
+                    ))
+                })?;
+                let start = row_offset
+                    .checked_add(token_index.checked_mul(hidden_size).ok_or_else(|| {
+                        EmbeddingError::InvalidOutputShape(format!(
+                            "shape is too large: {output_shape:?}"
+                        ))
+                    })?)
+                    .ok_or_else(|| {
+                        EmbeddingError::InvalidOutputShape(format!(
+                            "shape is too large: {output_shape:?}"
+                        ))
+                    })?;
+                let end = start + hidden_size;
+                pooled.push(output_data[start..end].to_vec());
+            }
+
+            Ok(pooled)
         }
         _ => Err(EmbeddingError::InvalidOutputShape(format!(
             "expected rank-2 or rank-3 tensor, got shape {output_shape:?}"
@@ -734,6 +826,17 @@ fn compute_document_content_hash(source_text: &str) -> String {
 fn compute_chunk_content_hash(chunk_texts: &[String]) -> String {
     let joined = chunk_texts.join("\0");
     compute_sha256_hex(&format!("chunks\0{joined}\0{LOCAL_EMBEDDING_MODEL_ID}"))
+}
+
+fn compute_chunk_plan(title: &str, body: &str) -> (Vec<DocumentChunk>, String) {
+    let plain_body = crate::text_processing::extract_plain_text_from_tiptap_or_raw(body);
+    let chunks = chunk_document_text(title, &plain_body);
+    let chunk_texts = chunks
+        .iter()
+        .map(|chunk| chunk.text.clone())
+        .collect::<Vec<_>>();
+    let chunk_content_hash = compute_chunk_content_hash(&chunk_texts);
+    (chunks, chunk_content_hash)
 }
 
 fn build_metadata_lookup(
@@ -764,7 +867,13 @@ fn embed_texts_batch_internal(
     engine: &mut EmbeddingEngine,
     texts: &[&str],
 ) -> Result<Vec<Vec<f32>>, EmbeddingError> {
-    texts.iter().map(|text| engine.embed_text(text)).collect()
+    let mut embeddings = Vec::with_capacity(texts.len());
+    for chunk in texts.chunks(EMBEDDING_INFERENCE_MICRO_BATCH_SIZE) {
+        let mut chunk_embeddings = engine.embed_texts(chunk)?;
+        embeddings.append(&mut chunk_embeddings);
+    }
+
+    Ok(embeddings)
 }
 
 fn embed_query_text(query: &str) -> Result<Vec<f32>, EmbeddingError> {
@@ -829,22 +938,23 @@ fn plan_document_embedding_sync_for_document(
             != Some(document_content_hash.as_str())
     };
 
-    let plain_body = crate::text_processing::extract_plain_text_from_tiptap_or_raw(&document.body);
-    let chunks = chunk_document_text(&document.title, &plain_body);
-    let chunk_texts = chunks
-        .iter()
-        .map(|chunk| chunk.text.clone())
-        .collect::<Vec<_>>();
-    let chunk_content_hash = compute_chunk_content_hash(&chunk_texts);
-
     let existing_chunk_hash = if let Some(lookup) = chunk_hash_lookup {
         lookup.get(&document.id).cloned()
     } else {
         store.get_document_chunk_embedding_content_hash(&document.id, LOCAL_EMBEDDING_MODEL_ID)?
     };
 
-    let should_update_chunk_embeddings =
-        existing_chunk_hash.as_deref() != Some(chunk_content_hash.as_str());
+    // Fast path: when document hash is unchanged and chunk embeddings exist for the same model,
+    // chunk content is also unchanged, so we skip expensive chunk extraction/hashing.
+    let (chunks, chunk_content_hash, should_update_chunk_embeddings) =
+        if !should_update_document_embedding && existing_chunk_hash.is_some() {
+            (Vec::new(), String::new(), false)
+        } else {
+            let (chunks, chunk_content_hash) = compute_chunk_plan(&document.title, &document.body);
+            let should_update_chunk_embeddings =
+                existing_chunk_hash.as_deref() != Some(chunk_content_hash.as_str());
+            (chunks, chunk_content_hash, should_update_chunk_embeddings)
+        };
 
     Ok(DocumentEmbeddingSyncPlan {
         source_text,
@@ -1039,12 +1149,17 @@ pub fn sync_documents_embeddings_batch_with_progress(
     documents: &[EmbeddingSyncDocumentPayload],
     mut progress_callback: Option<&mut crate::knowledge_base::ProgressCallback>,
 ) -> Result<EmbeddingBatchSyncResultPayload, EmbeddingError> {
+    let total_documents = documents.len();
     let metadata_lookup = build_metadata_lookup(store.list_document_embedding_metadata()?);
     let chunk_hash_lookup =
         store.list_document_chunk_embedding_hashes_by_model(LOCAL_EMBEDDING_MODEL_ID)?;
 
+    if let Some(callback) = progress_callback.as_mut() {
+        callback(crate::knowledge_base::ProgressEvent::Phase2Start { total_documents });
+    }
+
     let mut changed_documents: Vec<ChangedDocumentEmbeddingSyncCandidate<'_>> = Vec::new();
-    for document in documents {
+    for (document_index, document) in documents.iter().enumerate() {
         let plan = plan_document_embedding_sync_for_document(
             store,
             document,
@@ -1053,6 +1168,14 @@ pub fn sync_documents_embeddings_batch_with_progress(
         )?;
         if plan.should_update_document_embedding || plan.should_update_chunk_embeddings {
             changed_documents.push(ChangedDocumentEmbeddingSyncCandidate { document, plan });
+        }
+
+        if let Some(callback) = progress_callback.as_mut() {
+            callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
+                current: document_index + 1,
+                total: total_documents,
+                document_id: document.id.clone(),
+            });
         }
     }
 
@@ -1271,6 +1394,7 @@ pub fn hybrid_search_documents_by_query(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use ort::tensor::{Shape, SymbolicDimensions, TensorElementType};
@@ -1288,9 +1412,10 @@ mod tests {
     use super::{
         build_attention_mask_with_past, compute_chunk_content_hash, compute_document_content_hash,
         embed_texts_batch, infer_past_kv_shape, infer_past_sequence_length, l2_normalize,
-        pool_embedding, sync_documents_embeddings_batch, EmbeddingError,
+        plan_document_embedding_sync_for_document, pool_embeddings, sync_documents_embeddings_batch,
+        sync_documents_embeddings_batch_with_progress, EmbeddingError,
         EmbeddingSyncDocumentPayload, ModelInputSpec, LOCAL_EMBEDDING_DIMENSIONS,
-        LOCAL_EMBEDDING_MODEL_ID, PAST_KEY_VALUES_NAME,
+        LOCAL_EMBEDDING_MODEL_ID, PAST_KEY_VALUES_NAME, build_metadata_lookup,
     };
 
     fn unique_temp_path() -> std::path::PathBuf {
@@ -1328,8 +1453,25 @@ mod tests {
         let output = vec![1.0_f32, 2.0_f32, 3.0_f32, 4.0_f32, 5.0_f32, 6.0_f32];
         let shape = vec![1_i64, 3_i64, 2_i64];
         let attention_mask = vec![1_i64, 1_i64, 0_i64];
-        let pooled = pool_embedding(&output, &shape, &attention_mask).expect("pooling should work");
+        let pooled = pool_embeddings(&output, &shape, &[attention_mask])
+            .expect("pooling should work")
+            .pop()
+            .expect("single-row pool should contain one embedding");
         assert_eq!(pooled, vec![3.0_f32, 4.0_f32]);
+    }
+
+    #[test]
+    fn pool_embeddings_uses_last_active_token_for_each_batch_row() {
+        let output = vec![
+            1.0_f32, 2.0_f32, 3.0_f32, 4.0_f32, 5.0_f32, 6.0_f32, 7.0_f32, 8.0_f32, 9.0_f32,
+            10.0_f32, 11.0_f32, 12.0_f32,
+        ];
+        let shape = vec![2_i64, 3_i64, 2_i64];
+        let attention_masks = vec![vec![1_i64, 1_i64, 0_i64], vec![1_i64, 0_i64, 0_i64]];
+
+        let pooled = pool_embeddings(&output, &shape, &attention_masks)
+            .expect("batched pooling should work");
+        assert_eq!(pooled, vec![vec![3.0_f32, 4.0_f32], vec![7.0_f32, 8.0_f32]]);
     }
 
     #[test]
@@ -1486,6 +1628,314 @@ mod tests {
                 .get_document_chunk_embedding_content_hash(&document_id, LOCAL_EMBEDDING_MODEL_ID)
                 .expect("chunk hash read should succeed");
             assert_eq!(persisted_chunk_hash.as_deref(), Some(chunk_hash.as_str()));
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn plan_document_embedding_sync_marks_missing_chunk_embeddings_for_unchanged_document() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let document_id = "doc-backfill-chunks".to_string();
+            let title = "Unchanged document";
+            let body = "Chunk embeddings should be backfilled when missing.";
+            let initial_updated_at = "2026-02-19T00:00:00Z";
+
+            store
+                .upsert_document(&CachedDocumentPayload {
+                    id: document_id.clone(),
+                    user_id: "user-1".to_string(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: initial_updated_at.to_string(),
+                    updated_at: initial_updated_at.to_string(),
+                    tags: vec![],
+                })
+                .expect("document upsert should succeed");
+
+            let source_text = build_document_embedding_source_text(title, body);
+            let document_hash = compute_document_content_hash(&source_text);
+
+            store
+                .upsert_document_embedding(&CachedDocumentEmbeddingPayload {
+                    document_id: document_id.clone(),
+                    model: LOCAL_EMBEDDING_MODEL_ID.to_string(),
+                    content_hash: document_hash.clone(),
+                    vector: vec![0.25; LOCAL_EMBEDDING_DIMENSIONS],
+                    updated_at: initial_updated_at.to_string(),
+                })
+                .expect("seed document embedding should succeed");
+
+            let before_chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_id, LOCAL_EMBEDDING_MODEL_ID)
+                .expect("chunk hash read should succeed before sync");
+            assert!(
+                before_chunk_hash.is_none(),
+                "chunk embeddings should be missing before sync"
+            );
+
+            let document = EmbeddingSyncDocumentPayload {
+                id: document_id.clone(),
+                title: title.to_string(),
+                body: body.to_string(),
+                updated_at: "2026-02-19T00:05:00Z".to_string(),
+            };
+            let metadata_lookup = build_metadata_lookup(
+                store
+                    .list_document_embedding_metadata()
+                    .expect("metadata read should succeed"),
+            );
+            let chunk_hash_lookup = store
+                .list_document_chunk_embedding_hashes_by_model(LOCAL_EMBEDDING_MODEL_ID)
+                .expect("chunk hash lookup should succeed");
+
+            let plan = plan_document_embedding_sync_for_document(
+                &store,
+                &document,
+                Some(&metadata_lookup),
+                Some(&chunk_hash_lookup),
+            )
+            .expect("planning should succeed");
+
+            assert!(
+                !plan.should_update_document_embedding,
+                "unchanged document embedding should be skipped"
+            );
+            assert!(
+                plan.should_update_chunk_embeddings,
+                "missing chunk embeddings should trigger chunk backfill"
+            );
+            assert!(
+                !plan.chunks.is_empty(),
+                "chunk plan should include chunks when chunk embeddings are missing"
+            );
+            assert_eq!(plan.document_content_hash, document_hash);
+            assert!(
+                !plan.chunk_content_hash.is_empty(),
+                "chunk content hash should be computed for chunk backfill"
+            );
+
+            let persisted = store
+                .list_document_embedding_metadata()
+                .expect("metadata read should succeed")
+                .into_iter()
+                .find(|entry| {
+                    entry.document_id == document_id && entry.model == LOCAL_EMBEDDING_MODEL_ID
+                })
+                .expect("seeded document embedding metadata should exist");
+            assert_eq!(persisted.content_hash, document_hash);
+            assert_eq!(
+                persisted.updated_at, initial_updated_at,
+                "planning should not rewrite document embedding metadata"
+            );
+
+            let still_missing_chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_id, LOCAL_EMBEDDING_MODEL_ID)
+                .expect("chunk hash read should succeed after planning");
+            assert!(
+                still_missing_chunk_hash.is_none(),
+                "planning alone should not mutate chunk embeddings"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn sync_documents_embeddings_batch_backfills_missing_chunk_embeddings_for_unchanged_document() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let document_id = "doc-backfill-chunks".to_string();
+            let title = "Unchanged document";
+            let body = "Chunk embeddings should be backfilled when missing.";
+            let initial_updated_at = "2026-02-19T00:00:00Z";
+
+            store
+                .upsert_document(&CachedDocumentPayload {
+                    id: document_id.clone(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    user_id: "user-1".to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: initial_updated_at.to_string(),
+                    updated_at: initial_updated_at.to_string(),
+                    tags: vec![],
+                })
+                .expect("document upsert should succeed");
+
+            let source_text = build_document_embedding_source_text(title, body);
+            let document_hash = compute_document_content_hash(&source_text);
+
+            store
+                .upsert_document_embedding(&CachedDocumentEmbeddingPayload {
+                    document_id: document_id.clone(),
+                    model: LOCAL_EMBEDDING_MODEL_ID.to_string(),
+                    content_hash: document_hash,
+                    vector: vec![0.25; LOCAL_EMBEDDING_DIMENSIONS],
+                    updated_at: initial_updated_at.to_string(),
+                })
+                .expect("seed document embedding should succeed");
+
+            let sync_result = sync_documents_embeddings_batch(
+                &mut store,
+                &[EmbeddingSyncDocumentPayload {
+                    id: document_id.clone(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    updated_at: "2026-02-19T00:05:00Z".to_string(),
+                }],
+            )
+            .expect("sync should complete");
+
+            assert_eq!(
+                sync_result.synced_count + sync_result.failed_count,
+                1,
+                "single-document sync should account for exactly one result"
+            );
+
+            let after_chunk_hash = store
+                .get_document_chunk_embedding_content_hash(&document_id, LOCAL_EMBEDDING_MODEL_ID)
+                .expect("chunk hash read should succeed after sync");
+            if sync_result.failed_count == 0 {
+                assert!(
+                    after_chunk_hash.is_some(),
+                    "chunk embeddings should be backfilled for unchanged document"
+                );
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn sync_documents_embeddings_batch_reports_phase2_progress_during_prefilter() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let document_id = "doc-prefilter-progress".to_string();
+            let title = "Progress document";
+            let body = "This document keeps the same content between sync runs.";
+            let updated_at = "2026-02-19T00:00:00Z";
+
+            store
+                .upsert_document(&CachedDocumentPayload {
+                    id: document_id.clone(),
+                    user_id: "user-1".to_string(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    folder_path: "".to_string(),
+                    banner_image_url: None,
+                    deleted_at: None,
+                    created_at: updated_at.to_string(),
+                    updated_at: updated_at.to_string(),
+                    tags: vec![],
+                })
+                .expect("document upsert should succeed");
+
+            let source_text = build_document_embedding_source_text(title, body);
+            let document_hash = compute_document_content_hash(&source_text);
+            let plain_body = extract_plain_text_from_tiptap_or_raw(body);
+            let chunks = chunk_document_text(title, &plain_body);
+            let chunk_hash = compute_chunk_content_hash(
+                &chunks
+                    .iter()
+                    .map(|chunk| chunk.text.clone())
+                    .collect::<Vec<_>>(),
+            );
+
+            store
+                .upsert_document_embedding(&CachedDocumentEmbeddingPayload {
+                    document_id: document_id.clone(),
+                    model: LOCAL_EMBEDDING_MODEL_ID.to_string(),
+                    content_hash: document_hash,
+                    vector: vec![0.25; LOCAL_EMBEDDING_DIMENSIONS],
+                    updated_at: updated_at.to_string(),
+                })
+                .expect("seed document embedding should succeed");
+
+            let chunk_payloads = chunks
+                .iter()
+                .map(|chunk| CachedDocumentChunkEmbeddingPayload {
+                    document_id: document_id.clone(),
+                    chunk_index: chunk.index,
+                    chunk_text: chunk.text.clone(),
+                    content_hash: chunk_hash.clone(),
+                    model: LOCAL_EMBEDDING_MODEL_ID.to_string(),
+                    vector: vec![0.5; LOCAL_EMBEDDING_DIMENSIONS],
+                    updated_at: updated_at.to_string(),
+                })
+                .collect::<Vec<_>>();
+            store
+                .replace_document_chunk_embeddings(&document_id, &chunk_payloads)
+                .expect("seed chunk embeddings should succeed");
+
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let events_for_callback = Arc::clone(&events);
+            let mut callback: crate::knowledge_base::ProgressCallback = Box::new(move |event| {
+                events_for_callback
+                    .lock()
+                    .expect("event lock should not be poisoned")
+                    .push(event);
+            });
+
+            let sync_result = sync_documents_embeddings_batch_with_progress(
+                &mut store,
+                &[EmbeddingSyncDocumentPayload {
+                    id: document_id.clone(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    updated_at: "2026-02-19T00:01:00Z".to_string(),
+                }],
+                Some(&mut callback),
+            )
+            .expect("sync should succeed");
+
+            assert_eq!(sync_result.synced_count, 1);
+            assert_eq!(sync_result.failed_count, 0);
+
+            let observed_events = events
+                .lock()
+                .expect("event lock should not be poisoned")
+                .clone();
+            assert!(
+                matches!(
+                    observed_events.first(),
+                    Some(crate::knowledge_base::ProgressEvent::Phase2Start { total_documents: 1 })
+                ),
+                "phase 2 should start immediately with full document count"
+            );
+            assert!(
+                observed_events.iter().any(|event| matches!(
+                    event,
+                    crate::knowledge_base::ProgressEvent::Phase2Progress {
+                        current: 1,
+                        total: 1,
+                        ..
+                    }
+                )),
+                "phase 2 prefilter should report per-document progress"
+            );
+            assert!(
+                matches!(
+                    observed_events.last(),
+                    Some(crate::knowledge_base::ProgressEvent::Phase2Complete { .. })
+                ),
+                "phase 2 should complete cleanly"
+            );
         }
 
         let _ = std::fs::remove_dir_all(temp_dir);

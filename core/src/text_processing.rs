@@ -2,8 +2,6 @@ use serde_json::Value;
 
 const TARGET_CHUNK_CHARS: usize = 800;
 const OVERLAP_CHARS: usize = 200;
-const QUERY_EMBEDDING_INSTRUCTION: &str =
-    "Given a user query, retrieve relevant notes and passages.";
 
 #[derive(Debug, Clone)]
 pub struct DocumentChunk {
@@ -164,10 +162,7 @@ pub fn build_document_embedding_source_text(title: &str, body: &str) -> String {
 }
 
 pub fn format_query_for_embedding(query: &str) -> String {
-    format!(
-        "Instruct: {QUERY_EMBEDDING_INSTRUCTION}\nQuery: {}",
-        query.trim()
-    )
+    query.trim().to_owned()
 }
 
 #[cfg(test)]
@@ -213,7 +208,6 @@ mod tests {
     #[test]
     fn formats_query_instruction() {
         let formatted = format_query_for_embedding("my query");
-        assert!(formatted.starts_with("Instruct:"));
-        assert!(formatted.contains("Query: my query"));
+        assert_eq!(formatted, "my query");
     }
 }
