@@ -299,7 +299,7 @@ fn sanitize_fts5_query(raw: &str) -> Option<String> {
                 .iter()
                 .map(|token| {
                     if let Some(stem) = stemmed_token_prefix(token) {
-                        format!("(\"{}\" OR {}*)", token, stem)
+                        format!("(\"{}\" OR \"{}\"*)", token, stem)
                     } else {
                         format!("\"{}\"", token)
                     }
@@ -1529,6 +1529,48 @@ mod tests {
     }
 
     #[test]
+    fn hybrid_search_handles_hyphenated_terms_without_sql_errors() {
+        let temp_dir = unique_temp_path();
+
+        {
+            let mut store =
+                DocumentCacheStore::new(&temp_dir).expect("cache store should initialize");
+            let document = CachedDocumentPayload {
+                id: "doc-hyphen-safe".to_string(),
+                user_id: "user-1".to_string(),
+                title: "Hands on Guide".to_string(),
+                body: "A practical guide for hands on exercises.".to_string(),
+                folder_path: "".to_string(),
+                banner_image_url: None,
+                deleted_at: None,
+                created_at: "2026-02-13T00:00:00Z".to_string(),
+                updated_at: "2026-02-13T00:00:00Z".to_string(),
+                tags: vec![],
+            };
+            store
+                .upsert_document(&document)
+                .expect("upsert should succeed");
+
+            let result = store.hybrid_search_documents(
+                vec![0.0; EMBEDDING_VECTOR_DIMENSIONS],
+                "hands-only",
+                5,
+                0.0,
+                None,
+                0.0,
+                1.0,
+            );
+
+            assert!(
+                result.is_ok(),
+                "hyphenated terms should not trigger SQL parser errors"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
     fn apply_embedding_sync_batch_rolls_back_when_payload_is_invalid() {
         let temp_dir = unique_temp_path();
 
@@ -1899,7 +1941,7 @@ mod tests {
         assert_eq!(sanitize_fts5_query("a"), None); // single char token filtered
         assert_eq!(
             sanitize_fts5_query("machine learning"),
-            Some("\"machine\" AND (\"learning\" OR learn*)".to_string())
+            Some("\"machine\" AND (\"learning\" OR \"learn\"*)".to_string())
         );
         assert_eq!(
             sanitize_fts5_query("how to use the api"),
@@ -1907,7 +1949,11 @@ mod tests {
         );
         assert_eq!(
             sanitize_fts5_query("Herbal"),
-            Some("(\"herbal\" OR herb*)".to_string())
+            Some("(\"herbal\" OR \"herb\"*)".to_string())
+        );
+        assert_eq!(
+            sanitize_fts5_query("hands-only"),
+            Some("(\"hands-only\" OR \"hands-on\"*)".to_string())
         );
     }
 }
