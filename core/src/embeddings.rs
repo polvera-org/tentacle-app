@@ -744,17 +744,40 @@ fn build_metadata_lookup(
         .collect()
 }
 
-fn embed_query_text(query: &str) -> Result<Vec<f32>, EmbeddingError> {
-    let formatted = format_query_for_embedding(query);
+pub fn embed_texts_batch(texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if texts.iter().any(|text| text.trim().is_empty()) {
+        return Err(EmbeddingError::EmptyInput);
+    }
+
     let engine = EmbeddingEngine::engine()?;
     let mut engine = engine.lock().map_err(|_| EmbeddingError::EnginePoisoned)?;
-    engine.embed_text(&formatted)
+    embed_texts_batch_internal(&mut engine, texts)
+}
+
+fn embed_texts_batch_internal(
+    engine: &mut EmbeddingEngine,
+    texts: &[&str],
+) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+    texts.iter().map(|text| engine.embed_text(text)).collect()
+}
+
+fn embed_query_text(query: &str) -> Result<Vec<f32>, EmbeddingError> {
+    let formatted = format_query_for_embedding(query);
+    embed_texts_batch(&[formatted.as_str()])?
+        .into_iter()
+        .next()
+        .ok_or(EmbeddingError::EmptyInput)
 }
 
 fn embed_document_text(text: &str) -> Result<Vec<f32>, EmbeddingError> {
-    let engine = EmbeddingEngine::engine()?;
-    let mut engine = engine.lock().map_err(|_| EmbeddingError::EnginePoisoned)?;
-    engine.embed_text(text)
+    embed_texts_batch(&[text])?
+        .into_iter()
+        .next()
+        .ok_or(EmbeddingError::EmptyInput)
 }
 
 pub fn preload_embedding_model<F>(mut on_state: F) -> Result<(), EmbeddingError>
@@ -1073,9 +1096,9 @@ mod tests {
     use ort::value::ValueType;
 
     use super::{
-        build_attention_mask_with_past, infer_past_kv_shape, infer_past_sequence_length,
-        l2_normalize, pool_embedding, ModelInputSpec, LOCAL_EMBEDDING_DIMENSIONS,
-        PAST_KEY_VALUES_NAME,
+        build_attention_mask_with_past, embed_texts_batch, infer_past_kv_shape,
+        infer_past_sequence_length, l2_normalize, pool_embedding, EmbeddingError, ModelInputSpec,
+        LOCAL_EMBEDDING_DIMENSIONS, PAST_KEY_VALUES_NAME,
     };
 
     #[test]
@@ -1149,5 +1172,17 @@ mod tests {
         let attention_mask = vec![1_i64, 1_i64, 1_i64];
         let with_past = build_attention_mask_with_past(&attention_mask, 3, 5, 2);
         assert_eq!(with_past, vec![0_i64, 0_i64, 1_i64, 1_i64, 1_i64]);
+    }
+
+    #[test]
+    fn embed_texts_batch_empty_batch_short_circuits() {
+        let embeddings = embed_texts_batch(&[]).expect("empty batch should short-circuit");
+        assert!(embeddings.is_empty());
+    }
+
+    #[test]
+    fn embed_texts_batch_rejects_blank_strings() {
+        let error = embed_texts_batch(&["hello", "   "]).expect_err("blank input should fail");
+        assert!(matches!(error, EmbeddingError::EmptyInput));
     }
 }
