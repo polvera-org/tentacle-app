@@ -4,30 +4,34 @@ This directory is the implementation-focused documentation for future coding age
 
 ## Recommended Reading Order
 
-1. `cli/README.md` (repo root, install + agent workflow quickstart)
-2. `docs/core-cli-agent-guide.md`
-3. `docs/tauri-core-command-map.md`
-4. `CORE_CLI_PLAN.md` (repo root, high-level roadmap)
+1. `docs/architecture-overview.md`
+2. `docs/dev-setup-modes.md`
+3. `docs/local-storage-and-data-model.md`
+4. `docs/core-api-contracts.md`
+5. `docs/cli-command-contract.md`
+6. `docs/tauri-command-contract.md`
+7. `docs/search-and-embeddings.md`
+8. `docs/frontend-runtime-boundaries.md`
+9. `docs/supabase-schema-and-rls.md`
+10. `docs/testing-and-validation-playbook.md`
 
 ## Scope
 
-- CLI install/distribution and machine-readable usage patterns
-- Shared Rust core architecture
-- Embedding/search ownership and lifecycle
-- Tauri command surface and how it maps to core APIs
-- Guidance for upcoming CLI work
+- Architecture and ownership boundaries across core/CLI/frontend/Tauri
+- Setup and validation workflows for contributors
+- Storage/schema contracts (local markdown/cache and Supabase RLS)
+- Command and API contracts for CLI and Tauri integrations
+- Search/embedding lifecycle and runtime semantics
 
-## CLI Guidance
+## Legacy/Companion Docs
 
-- Prefer `tentacle ... --json` for all agent automation.
-- Chain commands through stable IDs: `search -> read -> tag`.
-- Use stdin create mode for non-interactive flows:
-  `echo "# note" | tentacle create --title "..." --json`.
-- For install/distribution details, see `cli/README.md` and root `README.md`.
+- `docs/core-cli-agent-guide.md`
+- `docs/tauri-core-command-map.md`
+- `cli/README.md` (repo root CLI install + quickstart)
 
 ## Current State Snapshot
 
-As of February 18, 2026:
+As of February 20, 2026:
 
 - `core` is the single owner of embedding sync + hybrid search orchestration.
 - Core embedding runtime is ONNX/MiniLM (`onnx-community/all-MiniLM-L6-v2-ONNX`).
