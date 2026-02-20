@@ -117,6 +117,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
       // Notify the app that settings have changed
       window.dispatchEvent(new CustomEvent('settings-changed'))
+
+      // Close the modal after successful save
+      onClose()
     } catch (error) {
       console.error('Failed to save settings:', error)
     } finally {
