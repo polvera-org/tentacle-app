@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { DocumentGrid } from '@/components/documents/document-grid'
 import { SettingsModal } from '@/components/settings/settings-modal'
 import { MyAccountModal } from '@/components/account/my-account-modal'
+import { ApiKeyBanner } from '@/components/onboarding/api-key-banner'
 import { useDebounce } from '@/hooks/use-debounce'
 import { useAuth } from '@/lib/auth/auth-context'
 
@@ -141,6 +142,7 @@ export default function DashboardPage() {
 
       <main className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full max-w-7xl flex-col px-4 py-8 sm:px-6 lg:px-8">
+          <ApiKeyBanner onOpenSettings={() => setIsSettingsOpen(true)} />
           <div className="mb-4">
             <label htmlFor="documents-search" className="sr-only">
               Search documents
