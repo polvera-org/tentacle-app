@@ -1,6 +1,5 @@
 # environment
 .env
-.env.local
 
 # agents
 .cursor
@@ -12,3 +11,4 @@
 .mcp.json
 
 target/
+supabase/
