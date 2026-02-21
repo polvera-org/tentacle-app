@@ -25,7 +25,7 @@ jobs:
             target: x86_64-apple-darwin
           - platform: ubuntu-24.04 # Linux
             target: x86_64-unknown-linux-gnu
-          - platform: windows-latest # Windows
+          - platform: windows-2022 # Windows (stable hosted image)
             target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
@@ -94,6 +94,11 @@ jobs:
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_ENV -Value "RUSTFLAGS=-C target-feature=-crt-static"
 
+      - name: Install VC++ runtime (Windows)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: choco install vcredist140 -y
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -123,4 +128,4 @@ jobs:
             See the [README](https://github.com/${{ github.repository }}) for more information.
           releaseDraft: true
           prerelease: false
-          args: --target ${{ matrix.target }}
+          args: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '--target x86_64-pc-windows-msvc --bundles nsis' || format('--target {0}', matrix.target) }}

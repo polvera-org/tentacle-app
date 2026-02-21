@@ -222,13 +222,45 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          # Create the release
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --generate-notes
+          set -euo pipefail
 
-          # Upload all artifact files (excluding JSON manifests and directories)
-          find release-artifacts -type f ! -name "*.json" -exec \
-            gh release upload "${{ github.ref_name }}" \
-              --repo "${{ github.repository }}" \
-              {} +
+          TAG="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+
+          # Create release if missing (idempotent for reruns)
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --generate-notes
+          fi
+
+          # Give GitHub a moment to propagate upload URL for newly created releases
+          sleep 3
+
+          mapfile -d '' FILES < <(find release-artifacts -type f \
+            ! -name "*.json" \
+            ! -name "README.md" \
+            -print0)
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No release assets found to upload"
+            exit 1
+          fi
+
+          for file in "${FILES[@]}"; do
+            echo "Uploading $(basename "$file")"
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$TAG" "$file" --repo "$REPO" --clobber; then
+                ok=1
+                break
+              fi
+              echo "Upload failed (attempt $attempt). Retrying..."
+              sleep $((attempt * 2))
+            done
+
+            if [ "$ok" -ne 1 ]; then
+              echo "Failed to upload $file after retries"
+              exit 1
+            fi
+          done
