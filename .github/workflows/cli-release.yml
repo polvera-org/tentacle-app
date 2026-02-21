@@ -54,6 +54,7 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: true
+          cache-bin: false
 
       - name: Cache ONNX Runtime binaries (Linux/macOS)
         if: runner.os != 'Windows'
@@ -75,20 +76,11 @@ jobs:
             ${{ runner.os }}-ort-${{ matrix.target }}-
             ${{ runner.os }}-ort-
 
-      - name: Cache cargo-dist binary
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/dist*
-            ~/.cargo/.crates2.json
-            ~/.cargo/.crates.toml
-          key: ${{ runner.os }}-cargo-dist-0.30.2
-
       - name: Install cargo-dist
         shell: bash
         run: |
           if ! dist --version 2>/dev/null | grep -q "0.30.2"; then
-            cargo install cargo-dist --version 0.30.2 --locked
+            cargo install cargo-dist --version 0.30.2 --locked --force
           fi
           DIST_BIN="${CARGO_HOME:-$HOME/.cargo}/bin/dist"
           if [ ! -x "$DIST_BIN" ]; then
@@ -162,21 +154,13 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: true
-
-      - name: Cache cargo-dist binary
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/dist*
-            ~/.cargo/.crates2.json
-            ~/.cargo/.crates.toml
-          key: ${{ runner.os }}-cargo-dist-0.30.2
+          cache-bin: false
 
       - name: Install cargo-dist
         shell: bash
         run: |
           if ! dist --version 2>/dev/null | grep -q "0.30.2"; then
-            cargo install cargo-dist --version 0.30.2 --locked
+            cargo install cargo-dist --version 0.30.2 --locked --force
           fi
           DIST_BIN="${CARGO_HOME:-$HOME/.cargo}/bin/dist"
           if [ ! -x "$DIST_BIN" ]; then
