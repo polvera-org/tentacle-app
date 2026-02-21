@@ -1,0 +1,4 @@
+# Force dynamic CRT linking on Windows for ONNX Runtime compatibility
+# This provides defense-in-depth alongside cargo-dist metadata configuration
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=-crt-static"]
