@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - "v*"
-      - "tentacle-v*"
+      - "tentacle-cli-v*"
   workflow_dispatch:
 
 permissions:
@@ -105,6 +105,19 @@ jobs:
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_ENV -Value "RUSTFLAGS=-C target-feature=-crt-static"
 
+      - name: Resolve dist tag
+        shell: bash
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$REF" =~ ^tentacle-cli-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            DIST_TAG="$REF"
+          else
+            CLI_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+            DIST_TAG="tentacle-cli-v${CLI_VERSION}"
+            echo "Non-release/test tag '$REF' detected. Falling back to dist tag '$DIST_TAG'."
+          fi
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+
       - name: Build dist artifacts
         shell: bash
         run: |
@@ -121,7 +134,7 @@ jobs:
             --target "${{ matrix.target }}" \
             --artifacts=local \
             --output-format=json \
-            --tag "${{ github.ref_name }}" \
+            --tag "$DIST_TAG" \
             > "target/distrib/dist-manifest-${{ matrix.target }}.json"
 
       - name: Upload local artifacts
@@ -182,6 +195,19 @@ jobs:
           path: target/distrib/
           merge-multiple: true
 
+      - name: Resolve dist tag
+        shell: bash
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$REF" =~ ^tentacle-cli-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            DIST_TAG="$REF"
+          else
+            CLI_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+            DIST_TAG="tentacle-cli-v${CLI_VERSION}"
+            echo "Non-release/test tag '$REF' detected. Falling back to dist tag '$DIST_TAG'."
+          fi
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+
       - name: Build global dist artifacts
         shell: bash
         run: |
@@ -196,7 +222,7 @@ jobs:
           "$DIST_BIN" build \
             --artifacts=global \
             --output-format=json \
-            --tag "${{ github.ref_name }}" \
+            --tag "$DIST_TAG" \
             > target/distrib/dist-manifest-global.json
 
       - name: Upload global artifacts
