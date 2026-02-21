@@ -23,7 +23,7 @@ jobs:
             target: aarch64-apple-darwin
           - platform: macos-15-intel # macOS Intel
             target: x86_64-apple-darwin
-          - platform: ubuntu-22.04 # Linux
+          - platform: ubuntu-24.04 # Linux
             target: x86_64-unknown-linux-gnu
           - platform: windows-latest # Windows
             target: x86_64-pc-windows-msvc
@@ -45,8 +45,37 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: app-release-${{ matrix.target }}
+          workspaces: |
+            . -> target
+            frontend/src-tauri -> target
+          cache-on-failure: true
+
+      - name: Cache ONNX Runtime binaries (Linux/macOS)
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ort.pyke.io
+          key: ${{ runner.os }}-ort-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-ort-${{ matrix.target }}-
+            ${{ runner.os }}-ort-
+
+      - name: Cache ONNX Runtime binaries (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ort.pyke.io
+          key: ${{ runner.os }}-ort-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-ort-${{ matrix.target }}-
+            ${{ runner.os }}-ort-
+
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -60,10 +89,16 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Use dynamic CRT on Windows
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_ENV -Value "RUSTFLAGS=-C target-feature=-crt-static"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '-C target-feature=-crt-static' || '' }}
         with:
           projectPath: frontend
           tagName: ${{ github.ref_name }}

@@ -11,3 +11,7 @@ strip = true
 
 # Optimize for size (alternative: opt-level = 3 for speed)
 opt-level = "z"
+
+# Force dynamic CRT linking on Windows for ONNX Runtime compatibility
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=-crt-static"]

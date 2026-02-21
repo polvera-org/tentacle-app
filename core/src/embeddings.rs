@@ -39,6 +39,11 @@ const CACHE_POSITION_NAME: &str = "cache_position";
 const EMBEDDING_SYNC_WRITE_BATCH_SIZE: usize = 75;
 const EMBEDDING_INFERENCE_MICRO_BATCH_SIZE: usize = 8;
 
+#[inline]
+const fn embeddings_runtime_enabled() -> bool {
+    !cfg!(all(target_os = "macos", target_arch = "x86_64"))
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingModelLoadStatus {
@@ -1061,6 +1066,18 @@ pub fn preload_embedding_model<F>(mut on_state: F) -> Result<(), EmbeddingError>
 where
     F: FnMut(EmbeddingModelLoadStatePayload),
 {
+    if !embeddings_runtime_enabled() {
+        let ready = EmbeddingModelLoadStatePayload {
+            status: EmbeddingModelLoadStatus::Ready,
+            stage: EmbeddingModelLoadStage::Ready,
+            progress: 1.0,
+            message: "Embedding runtime disabled for this build target.".to_owned(),
+            error: None,
+        };
+        on_state(ready);
+        return Ok(());
+    }
+
     let started = Instant::now();
     if EMBEDDING_ENGINE.get().is_some() {
         let ready = EmbeddingModelLoadStatePayload::ready();
@@ -1123,6 +1140,10 @@ pub fn sync_document_embeddings(
     document: &EmbeddingSyncDocumentPayload,
     metadata_lookup: Option<&HashMap<String, CachedDocumentEmbeddingMetadataPayload>>,
 ) -> Result<(), EmbeddingError> {
+    if !embeddings_runtime_enabled() {
+        return Ok(());
+    }
+
     let prepared_write =
         prepare_document_embedding_write_for_document(store, document, metadata_lookup, None)?;
 
@@ -1149,6 +1170,28 @@ pub fn sync_documents_embeddings_batch_with_progress(
     documents: &[EmbeddingSyncDocumentPayload],
     mut progress_callback: Option<&mut crate::knowledge_base::ProgressCallback>,
 ) -> Result<EmbeddingBatchSyncResultPayload, EmbeddingError> {
+    if !embeddings_runtime_enabled() {
+        let total_documents = documents.len();
+        if let Some(callback) = progress_callback.as_mut() {
+            callback(crate::knowledge_base::ProgressEvent::Phase2Start { total_documents });
+            for (index, document) in documents.iter().enumerate() {
+                callback(crate::knowledge_base::ProgressEvent::Phase2Progress {
+                    current: index + 1,
+                    total: total_documents,
+                    document_id: document.id.clone(),
+                });
+            }
+            callback(crate::knowledge_base::ProgressEvent::Phase2Complete {
+                synced: total_documents,
+                failed: 0,
+            });
+        }
+        return Ok(EmbeddingBatchSyncResultPayload {
+            synced_count: total_documents,
+            failed_count: 0,
+        });
+    }
+
     let total_documents = documents.len();
     let metadata_lookup = build_metadata_lookup(store.list_document_embedding_metadata()?);
     let chunk_hash_lookup =
@@ -1318,6 +1361,22 @@ pub fn hybrid_search_documents_by_query(
     if normalized_query.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
+
+    if !embeddings_runtime_enabled() {
+        let effective_bm25_weight = if bm25_weight > 0.0 { bm25_weight } else { 1.0 };
+        return store
+            .hybrid_search_documents(
+                vec![0.0_f32; LOCAL_EMBEDDING_DIMENSIONS],
+                query_text,
+                limit,
+                min_score,
+                exclude_document_id,
+                0.0,
+                effective_bm25_weight,
+            )
+            .map_err(EmbeddingError::from);
+    }
+
     let started = Instant::now();
 
     let normalized_semantic_query = semantic_query_text.unwrap_or(query_text).trim();
@@ -1410,12 +1469,13 @@ mod tests {
     };
 
     use super::{
-        build_attention_mask_with_past, compute_chunk_content_hash, compute_document_content_hash,
-        embed_texts_batch, infer_past_kv_shape, infer_past_sequence_length, l2_normalize,
-        plan_document_embedding_sync_for_document, pool_embeddings, sync_documents_embeddings_batch,
+        build_attention_mask_with_past, build_metadata_lookup, compute_chunk_content_hash,
+        compute_document_content_hash, embed_texts_batch, infer_past_kv_shape,
+        infer_past_sequence_length, l2_normalize, plan_document_embedding_sync_for_document,
+        pool_embeddings, sync_documents_embeddings_batch,
         sync_documents_embeddings_batch_with_progress, EmbeddingError,
         EmbeddingSyncDocumentPayload, ModelInputSpec, LOCAL_EMBEDDING_DIMENSIONS,
-        LOCAL_EMBEDDING_MODEL_ID, PAST_KEY_VALUES_NAME, build_metadata_lookup,
+        LOCAL_EMBEDDING_MODEL_ID, PAST_KEY_VALUES_NAME,
     };
 
     fn unique_temp_path() -> std::path::PathBuf {

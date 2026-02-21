@@ -13,8 +13,16 @@ sqlite-vec = "0.0.1-alpha.4"
 once_cell = "1"
 sha2 = "0.10"
 log = "0.4"
-ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray", "download-binaries", "copy-dylibs", "std", "tls-native"] }
 tokenizers = "0.20"
 hf-hub = "0.4"
 ndarray = "0.17"
 rayon = "1.10"
+
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray", "alternative-backend", "std"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray", "alternative-backend", "std"] }
+
+[target.'cfg(not(any(all(target_os = "macos", target_arch = "x86_64"), target_os = "windows")))'.dependencies]
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray", "download-binaries", "copy-dylibs", "std", "tls-native"] }
