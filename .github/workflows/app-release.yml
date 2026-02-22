@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   build-tauri:
+    environment: tentacle-app-ci
     strategy:
       fail-fast: false
       matrix:
