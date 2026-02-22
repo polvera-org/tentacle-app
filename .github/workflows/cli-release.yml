@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - "v*"
-      - "tentacle-v*"
+      - "tentacle-cli-v*"
   workflow_dispatch:
 
 permissions:
@@ -54,6 +54,7 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: true
+          cache-bin: false
 
       - name: Cache ONNX Runtime binaries (Linux/macOS)
         if: runner.os != 'Windows'
@@ -75,20 +76,11 @@ jobs:
             ${{ runner.os }}-ort-${{ matrix.target }}-
             ${{ runner.os }}-ort-
 
-      - name: Cache cargo-dist binary
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/dist*
-            ~/.cargo/.crates2.json
-            ~/.cargo/.crates.toml
-          key: ${{ runner.os }}-cargo-dist-0.30.2
-
       - name: Install cargo-dist
         shell: bash
         run: |
           if ! dist --version 2>/dev/null | grep -q "0.30.2"; then
-            cargo install cargo-dist --version 0.30.2 --locked
+            cargo install cargo-dist --version 0.30.2 --locked --force
           fi
           DIST_BIN="${CARGO_HOME:-$HOME/.cargo}/bin/dist"
           if [ ! -x "$DIST_BIN" ]; then
@@ -104,6 +96,19 @@ jobs:
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_ENV -Value "RUSTFLAGS=-C target-feature=-crt-static"
+
+      - name: Resolve dist tag
+        shell: bash
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$REF" =~ ^tentacle-cli-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            DIST_TAG="$REF"
+          else
+            CLI_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+            DIST_TAG="tentacle-cli-v${CLI_VERSION}"
+            echo "Non-release/test tag '$REF' detected. Falling back to dist tag '$DIST_TAG'."
+          fi
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
 
       - name: Build dist artifacts
         shell: bash
@@ -121,7 +126,7 @@ jobs:
             --target "${{ matrix.target }}" \
             --artifacts=local \
             --output-format=json \
-            --tag "${{ github.ref_name }}" \
+            --tag "$DIST_TAG" \
             > "target/distrib/dist-manifest-${{ matrix.target }}.json"
 
       - name: Upload local artifacts
@@ -149,21 +154,13 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: true
-
-      - name: Cache cargo-dist binary
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/dist*
-            ~/.cargo/.crates2.json
-            ~/.cargo/.crates.toml
-          key: ${{ runner.os }}-cargo-dist-0.30.2
+          cache-bin: false
 
       - name: Install cargo-dist
         shell: bash
         run: |
           if ! dist --version 2>/dev/null | grep -q "0.30.2"; then
-            cargo install cargo-dist --version 0.30.2 --locked
+            cargo install cargo-dist --version 0.30.2 --locked --force
           fi
           DIST_BIN="${CARGO_HOME:-$HOME/.cargo}/bin/dist"
           if [ ! -x "$DIST_BIN" ]; then
@@ -182,6 +179,19 @@ jobs:
           path: target/distrib/
           merge-multiple: true
 
+      - name: Resolve dist tag
+        shell: bash
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$REF" =~ ^tentacle-cli-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            DIST_TAG="$REF"
+          else
+            CLI_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+            DIST_TAG="tentacle-cli-v${CLI_VERSION}"
+            echo "Non-release/test tag '$REF' detected. Falling back to dist tag '$DIST_TAG'."
+          fi
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+
       - name: Build global dist artifacts
         shell: bash
         run: |
@@ -196,7 +206,7 @@ jobs:
           "$DIST_BIN" build \
             --artifacts=global \
             --output-format=json \
-            --tag "${{ github.ref_name }}" \
+            --tag "$DIST_TAG" \
             > target/distrib/dist-manifest-global.json
 
       - name: Upload global artifacts
@@ -222,14 +232,45 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          # Create the release
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --generate-notes
+          set -euo pipefail
 
-          # Upload all artifact files (excluding JSON manifests, README.md, and directories)
-          find release-artifacts -type f ! -name "*.json" ! -name "README.md" -exec \
-            gh release upload "${{ github.ref_name }}" \
-              --repo "${{ github.repository }}" \
-              --clobber \
-              {} +
+          TAG="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+
+          # Create release if missing (idempotent for reruns)
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --generate-notes
+          fi
+
+          # Give GitHub a moment to propagate upload URL for newly created releases
+          sleep 3
+
+          mapfile -d '' FILES < <(find release-artifacts -type f \
+            ! -name "*.json" \
+            ! -name "README.md" \
+            -print0)
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No release assets found to upload"
+            exit 1
+          fi
+
+          for file in "${FILES[@]}"; do
+            echo "Uploading $(basename "$file")"
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$TAG" "$file" --repo "$REPO" --clobber; then
+                ok=1
+                break
+              fi
+              echo "Upload failed (attempt $attempt). Retrying..."
+              sleep $((attempt * 2))
+            done
+
+            if [ "$ok" -ne 1 ]; then
+              echo "Failed to upload $file after retries"
+              exit 1
+            fi
+          done
