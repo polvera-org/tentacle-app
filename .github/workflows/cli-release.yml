@@ -23,8 +23,6 @@ jobs:
         include:
           - os: macos-latest # macOS ARM (M1/M2/M3)
             target: aarch64-apple-darwin
-          - os: macos-15-intel # macOS Intel
-            target: x86_64-apple-darwin
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - os: windows-2022
