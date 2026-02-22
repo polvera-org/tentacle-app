@@ -16,6 +16,7 @@ concurrency:
 jobs:
   build-tauri:
     environment: tentacle-app-ci
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -203,4 +204,5 @@ jobs:
             See the [README](https://github.com/${{ github.repository }}) for more information.
           releaseDraft: true
           prerelease: false
+          retryAttempts: 2
           args: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '--target x86_64-pc-windows-msvc --bundles nsis' || format('--target {0}', matrix.target) }}
