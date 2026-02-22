@@ -175,9 +175,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
-          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         with:
           projectPath: frontend
           tagName: ${{ github.ref_name }}
@@ -203,3 +200,78 @@ jobs:
           prerelease: false
           retryAttempts: 2
           args: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '--target x86_64-pc-windows-msvc --bundles nsis' || format('--target {0}', matrix.target) }}
+
+      - name: Submit DMG to Apple notarization (async, do not block release)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+        run: |
+          set +e
+
+          DMG_PATH=$(find frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' | head -n1)
+          if [ -z "$DMG_PATH" ]; then
+            echo "No DMG found to submit for notarization; skipping."
+            exit 0
+          fi
+
+          export DMG_PATH
+
+          python3 - <<'PY2'
+          import json
+          import os
+          import subprocess
+          import sys
+          
+          issuer = os.environ.get('APPLE_API_ISSUER', '')
+          key_id = os.environ.get('APPLE_API_KEY', '')
+          key_path = os.environ.get('APPLE_API_KEY_PATH', '')
+          dmg = os.environ.get('DMG_PATH', '')
+          
+          if not issuer or not key_id or not key_path or not dmg:
+              print('Missing Apple notarization env or DMG path; skipping async submission.')
+              sys.exit(0)
+          
+          cmd = [
+              'xcrun', 'notarytool', 'submit', dmg,
+              '--issuer', issuer,
+              '--key-id', key_id,
+              '--key', key_path,
+              '--output-format', 'json'
+          ]
+          
+          print('Submitting to Apple notarization (async, timeout=60s):')
+          print(' '.join(cmd[:-1]) + ' --output-format json')
+          
+          try:
+              proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+          except subprocess.TimeoutExpired:
+              print('Timed out after 60s while submitting to notary service. Continuing release anyway.')
+              sys.exit(0)
+          
+          if proc.returncode != 0:
+              print('notarytool submit failed (non-blocking):')
+              print(proc.stdout)
+              print(proc.stderr)
+              sys.exit(0)
+          
+          submission_id = None
+          try:
+              data = json.loads(proc.stdout)
+              submission_id = data.get('id')
+          except Exception:
+              pass
+          
+          print('Notarization submitted (non-blocking).')
+          if submission_id:
+              print(f'Submission ID: {submission_id}')
+              print('Check later with:')
+              print(f'xcrun notarytool info {submission_id} --issuer "{issuer}" --key-id "{key_id}" --key "{key_path}"')
+          else:
+              print(proc.stdout)
+          
+          sys.exit(0)
+          PY2
