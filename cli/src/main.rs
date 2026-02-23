@@ -3,6 +3,7 @@ mod cli;
 mod errors;
 mod output;
 mod progress;
+mod notifications;
 
 use clap::Parser;
 use serde::Serialize;
@@ -78,6 +79,10 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<(), CliError> {
+    if !cli.json {
+        notifications::maybe_print_cli_notifications();
+    }
+
     match &cli.command {
         Commands::Init => handle_init(cli.json),
         Commands::Config { command } => handle_config(command.as_ref(), cli.json),
