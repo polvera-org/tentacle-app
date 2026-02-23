@@ -1,91 +1,163 @@
-# Tentacle CLI
+<div align="center">
 
-`tentacle` is the command-line interface for Tentacle knowledge workflows, designed for humans and coding agents.
+# 🐙 Tentacle CLI
+
+**Semantic memory for your AI agents. Local-first. No vector DB.**
+
+Your notes, searchable by meaning — not just keywords.
+
+[Install](#install) · [Quick Start](#quick-start) · [Agent Integration](#agent-integration) · [Desktop App](#desktop-app)
+
+</div>
+
+---
+
+## The Problem
+
+Your AI agents forget everything between sessions. Your notes are scattered across apps that can't talk to each other. And every "smart search" solution wants you to spin up a vector database, manage embeddings pipelines, and send your data to someone else's cloud.
+
+**Tentacle fixes this in one command.**
+
+## What It Does
+
+Tentacle is a local-first CLI that gives you (and your AI agents) semantic search over your notes and documents.
+
+- **Search by meaning** — find notes about "authentication flow" even if you wrote "login system"
+- **Auto-tags on save** — stop manually organizing; AI categorizes for you
+- **Works with any agent** — Cursor, Claude Code, Windsurf, or any tool that can call a CLI
+- **Your data stays local** — markdown files in a folder you choose. No cloud required. No API keys for core features.
 
 ## Install
 
 ```bash
 # macOS / Linux
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/polvera/tentacle-app/releases/latest/download/tentacle-installer.sh | sh
-```
+  https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.sh | sh
 
-```powershell
 # Windows
-irm https://github.com/polvera/tentacle-app/releases/latest/download/tentacle-installer.ps1 | iex
+irm https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.ps1 | iex
+
+# Rust users
+cargo install --git https://github.com/polvera-org/tentacle-app --locked tentacle-cli
 ```
 
+Direct binary archives available on each [GitHub release](https://github.com/polvera-org/tentacle-app/releases) for aarch64-apple-darwin, x86_64-unknown-linux-gnu, and x86_64-pc-windows-msvc.
+
+## Quick Start
+
 ```bash
-# Rust developers
-cargo install --git https://github.com/polvera/tentacle-app --locked tentacle-cli
+# Initialize Tentacle
+tentacle init
+
+# Search by meaning, not keywords
+tentacle search "how we handle auth"
+
+# Create a note from the terminal
+echo "Meeting notes: decided to use OAuth2 for the API" | tentacle create --title "Auth Decision" --folder inbox
 ```
 
-## First run
+That's it. No database to configure. No embeddings to manage. Just your files, searchable by meaning.
+
+## Who It's For
+
+### 🔧 Engineers who outgrew Apple Notes
+You've got notes in six apps and none of them talk to each other. Tentacle works on plain markdown files in a folder. Bring your own editor. Search everything semantically.
+
+### 🌪️ Founders drowning in ideas
+Voice memos, meeting notes, shower thoughts — scattered everywhere. Tentacle captures and auto-organizes so nothing falls through the cracks.
+
+### 🔬 Researchers buried in data
+Papers, references, project notes piling up. Tentacle's semantic search surfaces the relevant context when you need it, not when you remember the exact filename.
+
+## Agent Integration
+
+Tentacle is built for AI agents. Every command supports `--json` output for easy piping.
+
+### MCP Server (Cursor, Claude Code, Windsurf)
+
+Tentacle runs as an MCP server — any agent that supports the Model Context Protocol gets semantic memory for free.
+
+### Pipeline Example
 
 ```bash
-tentacle init --json
+# Agent searches for relevant context
+doc_id=$(tentacle search "voice capture latency" --limit 1 --json | jq -r '.results[0].id')
+
+# Reads the full document
+tentacle read "$doc_id" --json | jq -r '.content'
+
+# Tags it for tracking
+tentacle tag "$doc_id" "reviewed,agent-checked" --json
+```
+
+### Non-Interactive Pipelines
+
+```bash
+# Pipe content directly
+cat meeting-notes.md | tentacle create --title "Standup 2026-02-23" --folder inbox --json
+
+# Check status programmatically
 tentacle status --json
 ```
 
-## Agent workflows
+## How It Works
 
-### 1) Search -> read -> tag
+```
+Your Files (markdown) → Local Embeddings → Semantic Index → Search by Meaning
+```
+
+- Notes stored as **plain markdown files** in a folder you choose
+- Embeddings computed and cached **locally** (no external API calls)
+- Semantic index stored in `.document-data.db` alongside your files
+- Soft delete moves files to `.trash/` — nothing is permanently lost
+- Optional BYOK auto-tagging enriches notes on save while preserving your manual tags
+
+## Desktop App
+
+> **Coming soon.** A native desktop app (macOS, Windows, Linux) with voice capture, rich text editing, and full semantic search — built on Tauri v2.
+>
+> [Join the waitlist →](https://tentaclenote.app/waitlist)
+
+The CLI and desktop app share the same local storage format. Start with the CLI today, and the desktop app will work with your existing notes when it lands.
+
+## Tech Stack
+
+- **CLI:** Rust (fast cold start, single binary)
+- **Embeddings:** Local computation, no external dependencies
+- **Storage:** Plain markdown files + SQLite index
+- **Desktop (coming soon):** Tauri v2 + Next.js + Tiptap editor
+- **Cloud (coming soon):** Optional Supabase sync for cross-device access
+
+## Development
 
 ```bash
-results=$(tentacle search "api design" --limit 3 --json)
-doc_id=$(echo "$results" | jq -r '.results[0].id')
+git clone https://github.com/polvera-org/tentacle-app.git
+cd tentacle-app
 
-tentacle read "$doc_id" --json | jq -r '.content'
-tentacle tag "$doc_id" "api,reviewed,agent" --json
+# CLI development
+cargo build --release
 ```
 
-### 2) Create from stdin (non-interactive)
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup details and guidelines.
+See [BUILD.md](../BUILD.md) for platform-specific build instructions.
 
-```bash
-echo "# Sync Notes\n\n- Added migration plan" | \
-  tentacle create --title "Sync Notes" --folder inbox --tags "meetings,sync" --json
-```
+## Troubleshooting
 
-### 3) JSON pipeline for batch processing
+| Issue | Fix |
+|---|---|
+| `tentacle: command not found` | Restart your shell or add the install path to `$PATH` |
+| Search returns no results | Run `tentacle init` first, then `tentacle create --title "First note"` |
+| Build errors on macOS | `xcode-select --install` then `rustup update stable` |
+| Build errors on Linux | Install deps from BUILD.md, `sudo apt update && sudo apt upgrade` |
 
-```bash
-tentacle list --json | \
-  jq -r '.documents[] | select(.tags | length == 0) | .id' | \
-  while read -r doc_id; do
-    tentacle tag "$doc_id" "needs-review" --json
-  done
-```
+## License
 
-## Useful flags
+MIT — see [LICENSE](../LICENSE) for details.
 
-- `--json`: machine-friendly output for pipelines and agents
-- `--help`: command usage
-- `--version` / `-V`: CLI version
+---
 
-## Auto-tagging on `create`
+<div align="center">
 
-- `tentacle create` can auto-tag new notes when `auto_tag=true` (default).
-- API key resolution order: `openai_api_key` in config DB, then `OPENAI_API_KEY` from env.
-- If auto-tagging cannot run (missing key, API failure, etc.), note creation still succeeds.
-- In `--json` mode, create responses include `auto_tagging` metadata with:
-  - `attempted`
-  - `applied_tags`
-  - `skipped_reason` (optional)
-  - `warning` (optional)
+**[tentaclenote.app](https://tentaclenote.app)** · Built by [Nicolas](https://github.com/polvera)
 
-## Output contract (JSON)
-
-- Success payloads are command-specific and use `snake_case` fields.
-- Errors always use:
-
-```json
-{
-  "error": {
-    "code": "invalid_arguments",
-    "message": "...",
-    "suggestion": "..."
-  }
-}
-```
-
-This keeps automation deterministic across scripts and agent loops.
+</div>
