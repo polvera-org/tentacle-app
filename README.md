@@ -32,10 +32,10 @@ Tentacle is a local-first CLI that gives you (and your AI agents) semantic searc
 ```bash
 # macOS / Linux
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.sh | sh
+  https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-cli-installer.sh | sh
 
 # Windows
-irm https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.ps1 | iex
+irm https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-cli-installer.ps1 | iex
 
 # Rust users
 cargo install --git https://github.com/polvera-org/tentacle-app --locked tentacle-cli
