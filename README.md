@@ -1,230 +1,163 @@
-# Tentacle
+<div align="center">
 
-Voice-first note-taking with automatic semantic organization.
+# 🐙 Tentacle CLI
 
-## What is Tentacle?
+**Semantic memory for your AI agents. Local-first. No vector DB.**
 
-Tentacle captures your thoughts via voice, transcribes them instantly, and automatically organizes them using AI-powered semantic analysis. Built for consultants, researchers, founders, and anyone who needs frictionless knowledge capture.
+Your notes, searchable by meaning — not just keywords.
 
-**Available as a native desktop application for macOS, Windows, and Linux.**
+[Install](#install) · [Quick Start](#quick-start) · [Agent Integration](#agent-integration) · [Desktop App](#desktop-app)
 
-## Download
+</div>
 
-[Download the latest release](https://github.com/polvera/tentacle-app/releases)
+---
 
-- **macOS**: Download `.dmg` file (macOS 11+)
-- **Windows**: Download `.exe` installer (Windows 10+)
-- **Linux**: Download `.AppImage` (Ubuntu 20.04+)
+## The Problem
 
-### Installation
+Your AI agents forget everything between sessions. Your notes are scattered across apps that can't talk to each other. And every "smart search" solution wants you to spin up a vector database, manage embeddings pipelines, and send your data to someone else's cloud.
 
-#### macOS
-1. Download the `.dmg` file from releases
-2. Open the DMG and drag Tentacle to your Applications folder
-3. Launch from Applications (first launch: right-click → Open to bypass Gatekeeper if unsigned)
+**Tentacle fixes this in one command.**
 
-#### Windows
-1. Download the `.exe` installer from releases
-2. Run the installer (you may see a SmartScreen warning - click "More info" → "Run anyway")
-3. Launch from Start Menu or Desktop shortcut
+## What It Does
 
-#### Linux
-1. Download the `.AppImage` file from releases
-2. Make it executable: `chmod +x Tentacle*.AppImage`
-3. Run: `./Tentacle*.AppImage`
+Tentacle is a local-first CLI that gives you (and your AI agents) semantic search over your notes and documents.
 
-## CLI (Agents and Automation)
+- **Search by meaning** — find notes about "authentication flow" even if you wrote "login system"
+- **Auto-tags on save** — stop manually organizing; AI categorizes for you
+- **Works with any agent** — Cursor, Claude Code, Windsurf, or any tool that can call a CLI
+- **Your data stays local** — markdown files in a folder you choose. No cloud required. No API keys for core features.
 
-Tentacle also ships a Rust CLI binary named `tentacle` for terminal workflows and coding agents.
-
-### Install the CLI
+## Install
 
 ```bash
-# macOS / Linux installer script
+# macOS / Linux
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/polvera/tentacle-app/releases/latest/download/tentacle-installer.sh | sh
+  https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.sh | sh
+
+# Windows
+irm https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.ps1 | iex
+
+# Rust users
+cargo install --git https://github.com/polvera-org/tentacle-app --locked tentacle-cli
 ```
 
-```powershell
-# Windows installer script
-irm https://github.com/polvera/tentacle-app/releases/latest/download/tentacle-installer.ps1 | iex
-```
+Direct binary archives available on each [GitHub release](https://github.com/polvera-org/tentacle-app/releases) for aarch64-apple-darwin, x86_64-unknown-linux-gnu, and x86_64-pc-windows-msvc.
+
+## Quick Start
 
 ```bash
-# Rust users (install from git)
-cargo install --git https://github.com/polvera/tentacle-app --locked tentacle-cli
+# Initialize Tentacle
+tentacle init
+
+# Search by meaning, not keywords
+tentacle search "how we handle auth"
+
+# Create a note from the terminal
+echo "Meeting notes: decided to use OAuth2 for the API" | tentacle create --title "Auth Decision" --folder inbox
 ```
 
-Direct binary archives are also available on each GitHub release for:
-- `aarch64-apple-darwin`
-- `x86_64-apple-darwin`
-- `x86_64-unknown-linux-gnu`
-- `x86_64-pc-windows-msvc`
+That's it. No database to configure. No embeddings to manage. Just your files, searchable by meaning.
 
-### CLI JSON examples
+## Who It's For
+
+### 🔧 Engineers who outgrew Apple Notes
+You've got notes in six apps and none of them talk to each other. Tentacle works on plain markdown files in a folder. Bring your own editor. Search everything semantically.
+
+### 🌪️ Founders drowning in ideas
+Voice memos, meeting notes, shower thoughts — scattered everywhere. Tentacle captures and auto-organizes so nothing falls through the cracks.
+
+### 🔬 Researchers buried in data
+Papers, references, project notes piling up. Tentacle's semantic search surfaces the relevant context when you need it, not when you remember the exact filename.
+
+## Agent Integration
+
+Tentacle is built for AI agents. Every command supports `--json` output for easy piping.
+
+### MCP Server (Cursor, Claude Code, Windsurf)
+
+Tentacle runs as an MCP server — any agent that supports the Model Context Protocol gets semantic memory for free.
+
+### Pipeline Example
 
 ```bash
-# Initialize and inspect status
-tentacle init --json
-tentacle status --json
-```
-
-```bash
-# Agent pipeline: search -> read -> tag
+# Agent searches for relevant context
 doc_id=$(tentacle search "voice capture latency" --limit 1 --json | jq -r '.results[0].id')
+
+# Reads the full document
 tentacle read "$doc_id" --json | jq -r '.content'
+
+# Tags it for tracking
 tentacle tag "$doc_id" "reviewed,agent-checked" --json
 ```
 
+### Non-Interactive Pipelines
+
 ```bash
-# Create from stdin for non-interactive pipelines
-cat note.md | tentacle create --title "Imported from pipeline" --folder inbox --json
+# Pipe content directly
+cat meeting-notes.md | tentacle create --title "Standup 2026-02-23" --folder inbox --json
+
+# Check status programmatically
+tentacle status --json
 ```
 
-## Core Philosophy
+## How It Works
 
-**Capture → Transcribe → Organize**
+```
+Your Files (markdown) → Local Embeddings → Semantic Index → Search by Meaning
+```
 
-- **Frictionless voice capture** - Zero friction recording
-- **Automatic organization** - AI categorizes and links notes
-- **Privacy-first** - Local-first architecture, you own your data
-- **Native desktop app** - Fast, secure, cross-platform
+- Notes stored as **plain markdown files** in a folder you choose
+- Embeddings computed and cached **locally** (no external API calls)
+- Semantic index stored in `.document-data.db` alongside your files
+- Soft delete moves files to `.trash/` — nothing is permanently lost
+- Optional BYOK auto-tagging enriches notes on save while preserving your manual tags
 
-## System Requirements
+## Desktop App
 
-- **macOS**: macOS 11 (Big Sur) or higher
-- **Windows**: Windows 10 (version 1809) or higher
-- **Linux**: Ubuntu 20.04, Fedora 36, or equivalent
-- **Network**: Not required for local document editing. Internet is only needed for optional cloud features.
+> **Coming soon.** A native desktop app (macOS, Windows, Linux) with voice capture, rich text editing, and full semantic search — built on Tauri v2.
+>
+> [Join the waitlist →](https://tentaclenote.app/waitlist)
 
-## Features
-
-- Rich text document editor with Tiptap
-- Local-first document create, read, update, delete operations
-- Local embeddings cache powers semantic search ranking from `<documents_folder>/.document-data.db`
-- Optional BYOK auto-tagging enriches notes on save while preserving manually added tags
-- Markdown files stored directly in a user-selected folder
-- Soft delete behavior (documents move to `.trash/`)
-- Cross-platform desktop application
-- Fast cold start (under 3 seconds)
-- No required login for local document workflows
-- Optional Supabase integration for future cloud sync/auth flows
+The CLI and desktop app share the same local storage format. Start with the CLI today, and the desktop app will work with your existing notes when it lands.
 
 ## Tech Stack
 
-- **Frontend**: Next.js 16 + TypeScript + Tailwind CSS
-- **Desktop**: Tauri v2 (Rust backend)
-- **Local Storage**: Markdown files on local filesystem via Tauri FS plugin
-- **Editor**: Tiptap
-- **Optional Cloud (future)**: Supabase (PostgreSQL + pgvector + Auth)
-
-## Project Structure
-
-```
-tentacle-app/
-├── frontend/              # Next.js application
-│   ├── app/              # App router pages
-│   ├── components/       # React components
-│   ├── lib/              # Utilities, hooks
-│   ├── src-tauri/        # Tauri Rust backend
-│   │   ├── src/main.rs  # Rust entry point
-│   │   └── tauri.conf.json  # Tauri configuration
-│   └── package.json
-├── specs/                # Specification documents
-├── .github/workflows/    # CI/CD pipelines
-├── BUILD.md              # Build instructions for developers
-├── CONTRIBUTING.md       # Contribution guidelines
-└── README.md             # This file
-```
+- **CLI:** Rust (fast cold start, single binary)
+- **Embeddings:** Local computation, no external dependencies
+- **Storage:** Plain markdown files + SQLite index
+- **Desktop (coming soon):** Tauri v2 + Next.js + Tiptap editor
+- **Cloud (coming soon):** Optional Supabase sync for cross-device access
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions.
-
-### Quick Start
-
 ```bash
-# Clone repository
-git clone https://github.com/polvera/tentacle-app.git
+git clone https://github.com/polvera-org/tentacle-app.git
 cd tentacle-app
 
-# Install dependencies
-cd frontend
-npm install
-
-# Run development server
-npm run tauri:dev
+# CLI development
+cargo build --release
 ```
 
-The desktop application will launch with hot reload enabled.
-
-On first launch:
-1. Open **Settings**
-2. Choose a local documents folder
-3. Create/edit documents (saved as `.md` files in that folder)
-
-### Environment Variables
-
-Environment variables are optional for local-first documents mode.
-
-If you want to experiment with Supabase-backed features, copy `.env.example` to `.env.local` in the `frontend/` directory and set:
-
-```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-### Building for Production
-
-See [BUILD.md](BUILD.md) for comprehensive build instructions.
-
-```bash
-cd frontend
-npm run tauri:build
-```
-
-Installers will be generated in `frontend/src-tauri/target/release/bundle/`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup details and guidelines.
+See [BUILD.md](BUILD.md) for platform-specific build instructions.
 
 ## Troubleshooting
 
-### Application Won't Launch
-- Check console output for errors
-- Verify Rust and Node dependencies are installed
-- If documents do not load, open Settings and select a valid local folder
-- Supabase environment variables are only required for optional cloud features
-- Try running with debug logs: `RUST_LOG=debug npm run tauri:dev`
-
-### Build Errors on macOS
-- Install Xcode Command Line Tools: `xcode-select --install`
-- Update Rust: `rustup update stable`
-
-### Build Errors on Windows
-- Install Visual C++ Build Tools
-- Ensure WebView2 runtime installed (pre-installed on Windows 11)
-
-### Build Errors on Linux
-- Install required dependencies (see BUILD.md)
-- Update system: `sudo apt update && sudo apt upgrade`
-
-For more troubleshooting help, see [BUILD.md](BUILD.md) or open an issue.
-
-## Contributing
-
-This is a personal project currently under active development. Issues and pull requests welcome!
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
-- Setting up your development environment
-- Running the app locally
-- Code style guidelines
-- Pull request process
-
-## Documentation
-
-- [BUILD.md](BUILD.md) - Comprehensive build instructions for all platforms
-- [cli/README.md](cli/README.md) - CLI installation and AI-agent workflow examples
-- [specs/TEN-8-tauri-desktop-app/](specs/TEN-8-tauri-desktop-app/) - Technical specifications
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
+| Issue | Fix |
+|---|---|
+| `tentacle: command not found` | Restart your shell or add the install path to `$PATH` |
+| Search returns no results | Run `tentacle init` first, then `tentacle create --title "First note"` |
+| Build errors on macOS | `xcode-select --install` then `rustup update stable` |
+| Build errors on Linux | Install deps from BUILD.md, `sudo apt update && sudo apt upgrade` |
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**[tentaclenote.app](https://tentaclenote.app)** · Built by [Nicolas](https://github.com/polvera)
+
+</div>
