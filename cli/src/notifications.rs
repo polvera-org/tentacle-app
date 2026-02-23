@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tentacle_core::config::default_data_dir;
 
 const WAITLIST_URL: &str = "https://tentaclenote.app/waitlist";
-const INSTALL_COMMAND: &str = "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-installer.sh | sh";
+const INSTALL_COMMAND: &str = "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polvera-org/tentacle-app/releases/latest/download/tentacle-cli-installer.sh | sh";
 const STATE_FILE_NAME: &str = "cli-notifications-state.json";
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -168,12 +168,21 @@ fn print_colored_notice(color: &str, label: &str, lines: &[String]) {
 }
 
 fn supabase_env() -> Option<(String, String)> {
+    // Try environment variables first (for local dev overrides)
     let url = std::env::var("TENTACLE_SUPABASE_URL")
         .ok()
-        .or_else(|| std::env::var("NEXT_PUBLIC_SUPABASE_URL").ok())?;
+        .or_else(|| std::env::var("NEXT_PUBLIC_SUPABASE_URL").ok())
+        // Fall back to compile-time embedded values (for distributed binaries)
+        .or_else(|| option_env!("NEXT_PUBLIC_SUPABASE_URL").map(String::from));
+
     let key = std::env::var("TENTACLE_SUPABASE_ANON_KEY")
         .ok()
-        .or_else(|| std::env::var("NEXT_PUBLIC_SUPABASE_ANON_KEY").ok())?;
+        .or_else(|| std::env::var("NEXT_PUBLIC_SUPABASE_ANON_KEY").ok())
+        // Fall back to compile-time embedded values (for distributed binaries)
+        .or_else(|| option_env!("NEXT_PUBLIC_SUPABASE_ANON_KEY").map(String::from));
+
+    let url = url?;
+    let key = key?;
 
     if url.trim().is_empty() || key.trim().is_empty() {
         return None;

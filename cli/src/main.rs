@@ -44,6 +44,11 @@ const DEFAULT_AUTO_TAG: bool = true;
 const DEFAULT_DOCUMENTS_FOLDER_VALUE: &str = "~/Tentacle";
 
 fn main() -> ExitCode {
+    // Load .env files early so environment variables are available for notifications
+    // Try loading from multiple locations: .env.local (committed), .env (local overrides)
+    let _ = dotenvy::from_filename(".env.local");
+    let _ = dotenvy::dotenv();
+
     let json_requested = std::env::args().skip(1).any(|arg| arg == "--json");
 
     let cli = match Cli::try_parse() {
