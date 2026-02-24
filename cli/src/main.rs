@@ -37,6 +37,7 @@ use crate::output::{format_bytes, humanize_datetime, normalize_iso8601, print_js
 const KEY_EDITOR: &str = "editor";
 const KEY_DEFAULT_FOLDER: &str = "default_folder";
 const KEY_AUTO_TAG: &str = "auto_tag";
+const KEY_OPENAI_API_KEY: &str = "openai_api_key";
 
 const DEFAULT_EDITOR: &str = "vi";
 const DEFAULT_FOLDER: &str = "inbox";
@@ -84,6 +85,11 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<(), CliError> {
+    // Auto-initialize before any command (except explicit init)
+    if !matches!(cli.command, Commands::Init) {
+        ensure_initialized(cli.json)?;
+    }
+
     if !cli.json {
         notifications::maybe_print_cli_notifications();
     }
@@ -120,6 +126,7 @@ enum ConfigKey {
     Editor,
     DefaultFolder,
     AutoTag,
+    OpenAiApiKey,
 }
 
 impl ConfigKey {
@@ -129,8 +136,9 @@ impl ConfigKey {
             "editor" => Ok(Self::Editor),
             "default_folder" => Ok(Self::DefaultFolder),
             "auto_tag" => Ok(Self::AutoTag),
+            "openai_api_key" => Ok(Self::OpenAiApiKey),
             _ => Err(CliError::invalid_arguments(format!(
-                "unsupported config key \"{raw_key}\"; supported keys: documents_folder, editor, default_folder, auto_tag"
+                "unsupported config key \"{raw_key}\"; supported keys: documents_folder, editor, default_folder, auto_tag, openai_api_key"
             ))),
         }
     }
@@ -141,6 +149,7 @@ impl ConfigKey {
             Self::Editor => KEY_EDITOR,
             Self::DefaultFolder => KEY_DEFAULT_FOLDER,
             Self::AutoTag => KEY_AUTO_TAG,
+            Self::OpenAiApiKey => KEY_OPENAI_API_KEY,
         }
     }
 
@@ -150,6 +159,7 @@ impl ConfigKey {
             Self::Editor => "editor",
             Self::DefaultFolder => "default_folder",
             Self::AutoTag => "auto_tag",
+            Self::OpenAiApiKey => "openai_api_key",
         }
     }
 }
@@ -175,6 +185,7 @@ struct ConfigViewPayload {
     editor: String,
     default_folder: String,
     auto_tag: bool,
+    openai_api_key: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -301,7 +312,37 @@ struct FolderDeleteResponsePayload {
     moved_to: String,
 }
 
-fn handle_init(json: bool) -> Result<(), CliError> {
+fn ensure_initialized(json: bool) -> Result<bool, CliError> {
+    let app_data_dir = resolve_app_data_dir()?;
+    let config_db = app_data_dir.join("config.db");
+
+    if config_db.exists() {
+        return Ok(false); // Already initialized
+    }
+
+    if !json {
+        println!("Welcome to Tentacle! Initializing for first use...\n");
+    }
+
+    // Run init silently
+    handle_init_internal()?;
+
+    if !json {
+        println!("✓ Initialized successfully\n");
+        println!("Optional: Configure OpenAI API key for auto-tagging:");
+        println!("  tentacle config set openai_api_key YOUR_KEY");
+        println!("  (Stored locally and never shared)\n");
+        println!("Optional: Set your default editor:");
+        println!("  tentacle config set editor YOUR_EDITOR");
+        println!("  (e.g. 'vi', 'nano', 'code', etc.)\n");
+        println!("Get started: tentacle create");
+        println!("Learn more: tentacle --help\n");
+    }
+
+    Ok(true) // Was initialized
+}
+
+fn handle_init_internal() -> Result<InitResponsePayload, CliError> {
     let app_data_dir = resolve_app_data_dir()?;
     std::fs::create_dir_all(&app_data_dir).map_err(map_io_error)?;
 
@@ -323,7 +364,7 @@ fn handle_init(json: bool) -> Result<(), CliError> {
     let documents_folder_path = resolve_documents_folder_path(&documents_folder_config_value)?;
     DocumentCacheStore::new(&documents_folder_path).map_err(map_document_cache_error)?;
 
-    let payload = InitResponsePayload {
+    Ok(InitResponsePayload {
         status: "initialized",
         config_path: app_data_dir
             .join("config.db")
@@ -331,7 +372,11 @@ fn handle_init(json: bool) -> Result<(), CliError> {
             .into_owned(),
         data_path: app_data_dir.to_string_lossy().into_owned(),
         documents_folder: documents_folder_path.to_string_lossy().into_owned(),
-    };
+    })
+}
+
+fn handle_init(json: bool) -> Result<(), CliError> {
+    let payload = handle_init_internal()?;
 
     if json {
         print_json(&payload)
@@ -354,11 +399,19 @@ fn handle_config(command: Option<&ConfigCommands>, json: bool) -> Result<(), Cli
 
 fn handle_config_view(json: bool) -> Result<(), CliError> {
     let store = open_config_store()?;
+    let openai_api_key_raw = get_config_text_or_default(&store, ConfigKey::OpenAiApiKey)?;
+    let openai_api_key_display = if openai_api_key_raw.is_empty() {
+        String::new()
+    } else {
+        "(set)".to_owned()
+    };
+
     let payload = ConfigViewPayload {
         documents_folder: get_config_text_or_default(&store, ConfigKey::DocumentsFolder)?,
         editor: get_config_text_or_default(&store, ConfigKey::Editor)?,
         default_folder: get_config_text_or_default(&store, ConfigKey::DefaultFolder)?,
         auto_tag: get_config_bool_or_default(&store, ConfigKey::AutoTag)?,
+        openai_api_key: openai_api_key_display.clone(),
     };
 
     if json {
@@ -368,6 +421,7 @@ fn handle_config_view(json: bool) -> Result<(), CliError> {
         println!("editor = {}", payload.editor);
         println!("default_folder = {}", payload.default_folder);
         println!("auto_tag = {}", payload.auto_tag);
+        println!("openai_api_key = {}", openai_api_key_display);
         Ok(())
     }
 }
@@ -417,6 +471,14 @@ fn handle_config_set(key: &str, value: &str, json: bool) -> Result<(), CliError>
         ConfigKey::DocumentsFolder => {
             let resolved_path = resolve_documents_folder_path(&normalized_value)?;
             DocumentCacheStore::new(&resolved_path).map_err(map_document_cache_error)?;
+            ConfigValuePayload::Text(normalized_value.clone())
+        }
+        ConfigKey::OpenAiApiKey => {
+            if !normalized_value.starts_with("sk-") {
+                return Err(CliError::invalid_arguments(
+                    "OpenAI API key must start with 'sk-'",
+                ));
+            }
             ConfigValuePayload::Text(normalized_value.clone())
         }
         ConfigKey::Editor | ConfigKey::DefaultFolder => {
@@ -471,6 +533,12 @@ fn handle_reindex(args: &ReindexArgs, json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
     let folder_filter = normalize_folder_filter(args.folder.as_deref())?;
     let started = Instant::now();
+
+    // Show first-time model download message
+    if !is_embedding_model_cached() && !json {
+        println!("\nFirst run: downloading embedding model (~100MB)...");
+        println!("This only happens once. Future operations will be faster.\n");
+    }
 
     let progress_callback = if json {
         None
@@ -715,6 +783,12 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
         spinner.finish_and_clear();
     }
 
+    // Show first-time model download message
+    if !is_embedding_model_cached() && !json {
+        println!("\nFirst run: downloading embedding model (~100MB)...");
+        println!("This only happens once. Future operations will be faster.\n");
+    }
+
     let sync_spinner = if !json {
         crate::progress::create_spinner_with_message("Creating embeddings...")
     } else {
@@ -751,7 +825,13 @@ fn handle_create(args: &CreateArgs, json: bool) -> Result<(), CliError> {
     if let Some(auto_tagging) = payload.auto_tagging.as_ref() {
         if auto_tagging.applied_tags.is_empty() {
             if let Some(reason) = auto_tagging.skipped_reason.as_deref() {
-                println!("Auto-tagging: skipped ({reason})");
+                if reason == "missing_api_key" {
+                    println!("Auto-tagging: skipped (no API key configured)");
+                    eprintln!("  → Set OPENAI_API_KEY environment variable, or run:");
+                    eprintln!("    tentacle config set openai_api_key YOUR_KEY");
+                } else {
+                    println!("Auto-tagging: skipped ({reason})");
+                }
             } else {
                 println!("Auto-tagging: no new tags");
             }
@@ -1073,6 +1153,11 @@ fn get_config_text_or_default(store: &ConfigStore, key: ConfigKey) -> Result<Str
             .map_err(map_config_error)?
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_FOLDER.to_owned()),
+        ConfigKey::OpenAiApiKey => store
+            .get(key.store_key())
+            .map_err(map_config_error)?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_default(),
         ConfigKey::AutoTag => return Err(CliError::invalid_arguments("auto_tag is a boolean key")),
     };
 
@@ -1104,7 +1189,7 @@ fn get_config_bool_or_default(store: &ConfigStore, key: ConfigKey) -> Result<boo
 
 fn get_config_value(store: &ConfigStore, key: ConfigKey) -> Result<ConfigValuePayload, CliError> {
     match key {
-        ConfigKey::DocumentsFolder | ConfigKey::Editor | ConfigKey::DefaultFolder => Ok(
+        ConfigKey::DocumentsFolder | ConfigKey::Editor | ConfigKey::DefaultFolder | ConfigKey::OpenAiApiKey => Ok(
             ConfigValuePayload::Text(get_config_text_or_default(store, key)?),
         ),
         ConfigKey::AutoTag => Ok(ConfigValuePayload::Bool(get_config_bool_or_default(
@@ -1241,6 +1326,13 @@ fn confirm_folder_delete(folder_name: &str, documents_to_move: usize) -> Result<
 
     let normalized = response.trim().to_ascii_lowercase();
     Ok(normalized == "y" || normalized == "yes")
+}
+
+fn is_embedding_model_cached() -> bool {
+    let cache_dir = home_dir()
+        .map(|h| h.join(".cache/huggingface/hub/models--onnx-community--all-MiniLM-L6-v2-ONNX"))
+        .unwrap_or_default();
+    cache_dir.exists()
 }
 
 fn sync_cache_for_document_folder(
