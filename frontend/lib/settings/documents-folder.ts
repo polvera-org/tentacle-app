@@ -7,6 +7,38 @@ function normalizeFolderPath(path: string): string | null {
   return normalizedPath.length > 0 ? normalizedPath : null
 }
 
+async function expandTildePath(path: string): Promise<string> {
+  const trimmed = path.trim()
+
+  // If path doesn't start with ~, return as-is (already absolute)
+  if (!trimmed.startsWith('~')) {
+    return trimmed
+  }
+
+  const { homeDir, join } = await import('@tauri-apps/api/path')
+  const home = await homeDir()
+
+  // Handle exact "~"
+  if (trimmed === '~') {
+    return home
+  }
+
+  // Handle "~/" prefix
+  if (trimmed.startsWith('~/')) {
+    const remainder = trimmed.slice(2) // Remove "~/"
+    return await join(home, remainder)
+  }
+
+  // Handle "~\" prefix (Windows-style)
+  if (trimmed.startsWith('~\\')) {
+    const remainder = trimmed.slice(2) // Remove "~\"
+    return await join(home, remainder)
+  }
+
+  // Edge case: "~something" without separator - treat as literal
+  return trimmed
+}
+
 async function getDefaultDocumentsFolder(): Promise<string> {
   try {
     const { homeDir, join } = await import('@tauri-apps/api/path')
@@ -41,7 +73,9 @@ export async function getDocumentsFolderAsync(): Promise<string> {
     if (configuredFolderPath !== null) {
       const normalized = normalizeFolderPath(configuredFolderPath)
       if (normalized) {
-        return normalized
+        // Expand tilde paths to absolute paths
+        const expanded = await expandTildePath(normalized)
+        return expanded
       }
     }
 
@@ -68,9 +102,12 @@ export async function setDocumentsFolder(path: string): Promise<void> {
     return
   }
 
+  // Expand tilde paths before storing to prevent future issues
+  const expandedPath = await expandTildePath(normalizedPath)
+
   await invoke('set_config', {
     key: CONFIG_KEY_DOCUMENTS_FOLDER,
-    value: normalizedPath,
+    value: expandedPath,
   })
 }
 
