@@ -1,5 +1,5 @@
 [package]
-name = "Tentacle"
+name = "tentacle-app"
 version = "0.1.1"
 description = "A local knowledge management tool with RAG capabilities."
 authors = ["Nicolas Leão"]
