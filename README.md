@@ -49,6 +49,9 @@ Direct binary archives available on each [GitHub release](https://github.com/pol
 # Initialize Tentacle
 tentacle init
 
+# Configure OpenAI API key for auto-tagging (optional)
+tentacle config set openai_api_key <your_key>
+
 # Search by meaning, not keywords
 tentacle search "how we handle auth"
 
@@ -73,9 +76,13 @@ Papers, references, project notes piling up. Tentacle's semantic search surfaces
 
 Tentacle is built for AI agents. Every command supports `--json` output for easy piping.
 
-### MCP Server (Cursor, Claude Code, Windsurf)
+### Skill Installation (Cursor, Claude Code, Windsurf, etc.)
 
-Tentacle runs as an MCP server — any agent that supports the Model Context Protocol gets semantic memory for free.
+Tentacle runs as a CLI tool that any agent can call. Download the pre-configured skill for instant integration:
+
+**[Download Tentacle Memory Skill (.zip)](https://github.com/polvera-org/tentacle-app/raw/refs/heads/main/skills/tentacle-memory.zip)**
+
+The skill includes all commands, JSON schemas, and usage examples for seamless agent integration.
 
 ### Pipeline Example
 
