@@ -1,6 +1,6 @@
 [package]
 name = "tentacle-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Tentacle CLI for terminal and AI-agent workflows"
 license = "MIT"
