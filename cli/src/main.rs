@@ -28,8 +28,8 @@ use tentacle_core::knowledge_base::{KnowledgeBaseError, KnowledgeBaseService, Se
 
 use crate::auto_tagging::{apply_after_create, CreateAutoTaggingPayload};
 use crate::cli::{
-    Cli, Commands, ConfigCommands, CreateArgs, FolderCommands, ListArgs, ListSort, ReadArgs,
-    ReindexArgs, SearchArgs, TagArgs,
+    Cli, Commands, ConfigCommands, CreateArgs, DeleteArgs, FolderCommands, ListArgs, ListSort,
+    ReadArgs, ReindexArgs, SearchArgs, TagArgs,
 };
 use crate::errors::{clap_exit_code, exit_code_for, summarize_clap_error, CliError};
 use crate::output::{format_bytes, humanize_datetime, normalize_iso8601, print_json};
@@ -116,7 +116,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Commands::Edit(_) => Err(CliError::not_implemented("edit")),
         Commands::Import(_) => Err(CliError::not_implemented("import")),
         Commands::Export(_) => Err(CliError::not_implemented("export")),
-        Commands::Delete(_) => Err(CliError::not_implemented("delete")),
+        Commands::Delete(args) => handle_delete(args, cli.json),
     }
 }
 
@@ -310,6 +310,13 @@ struct FolderDeleteResponsePayload {
     status: &'static str,
     documents_moved: usize,
     moved_to: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DeleteResponsePayload {
+    id: String,
+    title: String,
+    status: &'static str,
 }
 
 fn ensure_initialized(json: bool) -> Result<bool, CliError> {
@@ -920,6 +927,52 @@ fn handle_tag(args: &TagArgs, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
+fn handle_delete(args: &DeleteArgs, json: bool) -> Result<(), CliError> {
+    let documents_folder = load_documents_folder()?;
+
+    if !args.force {
+        if io::stdin().is_terminal() {
+            if !confirm_delete(&args.document_id)? {
+                let payload = DeleteResponsePayload {
+                    id: args.document_id.clone(),
+                    title: String::new(),
+                    status: "cancelled",
+                };
+
+                if json {
+                    return print_json(&payload);
+                }
+
+                println!("Delete cancelled.");
+                return Ok(());
+            }
+        } else {
+            return Err(CliError::invalid_arguments(
+                "non-interactive deletion requires --force",
+            ));
+        }
+    }
+
+    let deleted = document_store::delete_document(&documents_folder, &args.document_id)
+        .map_err(map_document_store_error)?;
+
+    sync_cache_for_document_folder(&documents_folder, &deleted.folder_path)?;
+
+    let payload = DeleteResponsePayload {
+        id: deleted.id.clone(),
+        title: deleted.title.clone(),
+        status: "deleted",
+    };
+
+    if json {
+        return print_json(&payload);
+    }
+
+    println!("Deleted document {} \"{}\".", deleted.id, deleted.title);
+    println!("Document moved to .trash/ (can be restored manually)");
+    Ok(())
+}
+
 fn handle_folder_list(json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
     let folders = DocumentFoldersService::list_folders(&documents_folder)
@@ -1319,6 +1372,17 @@ fn confirm_folder_delete(folder_name: &str, documents_to_move: usize) -> Result<
     print!(
         "Delete folder \"{folder_name}\"? {documents_to_move} documents will be moved to {DEFAULT_FOLDER}. (y/n): "
     );
+    io::stdout().flush().map_err(map_io_error)?;
+
+    let mut response = String::new();
+    io::stdin().read_line(&mut response).map_err(map_io_error)?;
+
+    let normalized = response.trim().to_ascii_lowercase();
+    Ok(normalized == "y" || normalized == "yes")
+}
+
+fn confirm_delete(document_id: &str) -> Result<bool, CliError> {
+    print!("Delete document \"{document_id}\"? It will be moved to .trash/. (y/n): ");
     io::stdout().flush().map_err(map_io_error)?;
 
     let mut response = String::new();

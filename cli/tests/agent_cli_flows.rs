@@ -657,3 +657,95 @@ fn deferred_commands_return_not_implemented_with_exit_code_four() {
         .unwrap_or_default()
         .contains("edit"));
 }
+
+#[test]
+fn delete_document_moves_to_trash() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    // Create a document to delete
+    let create_payload = env.run_json_success_with_stdin(
+        ["create", "--title", "To Delete", "--folder", "inbox"],
+        "This document will be deleted.",
+    );
+    assert_eq!(create_payload["title"], "To Delete");
+    let doc_id = create_payload["id"].as_str().unwrap();
+
+    // Verify the document exists
+    let list_payload = env.run_json_success(["list"]);
+    assert_eq!(list_payload["total"].as_u64(), Some(1));
+
+    // Delete the document with --force
+    let delete_payload = env.run_json_success(["delete", doc_id, "--force"]);
+    assert_eq!(delete_payload["status"], "deleted");
+    assert_eq!(delete_payload["id"], doc_id);
+    assert_eq!(delete_payload["title"], "To Delete");
+
+    // Verify the document is no longer listed
+    let list_after_payload = env.run_json_success(["list"]);
+    assert_eq!(list_after_payload["total"].as_u64(), Some(0));
+
+    // Verify the document exists in .trash/
+    let trash_path = env.documents_dir.join(".trash/inbox/To Delete.md");
+    assert!(
+        trash_path.exists(),
+        "deleted document should exist in .trash/"
+    );
+
+    // Verify we can't read the deleted document
+    let mut read_deleted = env.command();
+    read_deleted
+        .arg("--json")
+        .args(["read", doc_id])
+        .assert()
+        .code(2)
+        .stderr(contains("not found"));
+}
+
+#[test]
+fn read_document_by_prefix_id() {
+    let env = CliTestEnv::new();
+    env.bootstrap();
+
+    // Create two documents with known ID prefixes
+    let doc1_payload = env.run_json_success_with_stdin(
+        ["create", "--title", "First Document", "--folder", "inbox"],
+        "First document content.",
+    );
+    let doc1_id = doc1_payload["id"].as_str().unwrap();
+
+    let _doc2_payload = env.run_json_success_with_stdin(
+        ["create", "--title", "Second Document", "--folder", "inbox"],
+        "Second document content.",
+    );
+
+    // Read by full ID should work
+    let read_full = env.run_json_success(["read", doc1_id]);
+    assert_eq!(read_full["id"], doc1_id);
+    assert_eq!(read_full["title"], "First Document");
+
+    // Read by unique prefix should work (use first 10 characters)
+    let prefix = &doc1_id[..10];
+    let read_prefix = env.run_json_success(["read", prefix]);
+    assert_eq!(read_prefix["id"], doc1_id);
+    assert_eq!(read_prefix["title"], "First Document");
+
+    // Ambiguous prefix should fail
+    let short_prefix = &doc1_id[..4];
+    let mut read_ambiguous = env.command();
+    read_ambiguous
+        .arg("--json")
+        .args(["read", short_prefix])
+        .assert()
+        .code(4)
+        .stderr(contains("ambiguous"));
+
+    // Non-existent prefix should fail with not found
+    let mut read_missing = env.command();
+    read_missing
+        .arg("--json")
+        .args(["read", "nonexistent123"])
+        .assert()
+        .code(2)
+        .stderr(contains("not found"));
+}

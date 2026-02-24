@@ -341,6 +341,55 @@ pub fn find_document_by_id(
     )))
 }
 
+pub fn delete_document(
+    documents_folder: &Path,
+    document_id: &str,
+) -> Result<StoredDocument, DocumentStoreError> {
+    let normalized_id = normalize_document_id(document_id).ok_or_else(|| {
+        DocumentStoreError::Validation("document_id must not be empty".to_owned())
+    })?;
+
+    let file =
+        find_stored_markdown_file_by_id(documents_folder, &normalized_id)?.ok_or_else(|| {
+            DocumentStoreError::NotFound(format!("document \"{normalized_id}\" was not found"))
+        })?;
+
+    let read_result =
+        read_stored_document_from_file(documents_folder, &file, Some(&normalized_id))?;
+    let document = map_stored_record_to_document(&read_result.record, &file.relative_folder_path);
+
+    // Build trash destination path preserving folder structure
+    let trash_folder_path = if file.relative_folder_path.is_empty() {
+        PathBuf::from(RESERVED_TRASH_FOLDER)
+    } else {
+        PathBuf::from(RESERVED_TRASH_FOLDER).join(&file.relative_folder_path)
+    };
+    let trash_absolute_path = documents_folder.join(&trash_folder_path);
+    fs::create_dir_all(&trash_absolute_path)?;
+
+    // Move the file to trash
+    let trash_file_path = trash_absolute_path.join(&file.name);
+
+    // If a file already exists at the destination, add a suffix to make it unique
+    let final_trash_path = if trash_file_path.exists() {
+        let mut counter: usize = 1;
+        loop {
+            let file_stem = file.name.trim_end_matches(MARKDOWN_EXTENSION);
+            let candidate = trash_absolute_path.join(format!("{file_stem} ({}){MARKDOWN_EXTENSION}", counter));
+            if !candidate.exists() {
+                break candidate;
+            }
+            counter += 1;
+        }
+    } else {
+        trash_file_path
+    };
+
+    fs::rename(&file.absolute_path, &final_trash_path)?;
+
+    Ok(document)
+}
+
 fn ensure_documents_folder_exists(documents_folder: &Path) -> Result<(), DocumentStoreError> {
     fs::create_dir_all(documents_folder)?;
     if !documents_folder.is_dir() {
@@ -464,6 +513,7 @@ fn find_stored_markdown_file_by_id(
     files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
     let mut fallback_match: Option<StoredMarkdownFile> = None;
+    let mut prefix_matches: Vec<StoredMarkdownFile> = Vec::new();
 
     for file in files {
         let content = match fs::read_to_string(&file.absolute_path) {
@@ -480,16 +530,41 @@ fn find_stored_markdown_file_by_id(
         };
 
         let parsed_id = parse_frontmatter_id(&content);
+
+        // Exact match - highest priority
         if parsed_id.as_deref() == Some(normalized_id.as_str()) {
             return Ok(Some(file));
         }
 
+        // Prefix match on frontmatter ID
+        if let Some(ref id) = parsed_id {
+            if id.starts_with(&normalized_id) {
+                prefix_matches.push(file.clone());
+                continue;
+            }
+        }
+
+        // Fallback: match filename (for documents without frontmatter ID)
         if parsed_id.is_none()
             && file.title_from_file_name == normalized_id
             && fallback_match.is_none()
         {
             fallback_match = Some(file);
         }
+    }
+
+    // If we have exactly one prefix match, use it
+    if prefix_matches.len() == 1 {
+        return Ok(Some(prefix_matches.into_iter().next().unwrap()));
+    }
+
+    // If we have multiple prefix matches, that's ambiguous - return error with helpful message
+    if prefix_matches.len() > 1 {
+        return Err(DocumentStoreError::Validation(format!(
+            "ambiguous document id \"{}\": matches {} documents. Use a longer prefix to uniquely identify the document.",
+            normalized_id,
+            prefix_matches.len()
+        )));
     }
 
     Ok(fallback_match)
@@ -1437,6 +1512,74 @@ mod tests {
         assert_eq!(by_id.get("root-id"), Some(&"".to_owned()));
         assert_eq!(by_id.get("work-one"), Some(&"work".to_owned()));
         assert_eq!(by_id.get("work-two"), Some(&"work/sub".to_owned()));
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn finds_document_by_prefix_match() {
+        let temp_dir = unique_temp_path("tentacle-document-store-prefix");
+        fs::create_dir_all(&temp_dir).expect("create temp directory");
+
+        // Create documents with known IDs
+        let _doc1 = create_document(
+            &temp_dir,
+            &CreateDocumentInput {
+                title: Some("First Doc".to_owned()),
+                body: Some("First content".to_owned()),
+                folder_path: None,
+                tags: vec![],
+                tags_locked: Some(false),
+                id: Some("abc123456".to_owned()),
+            },
+        )
+        .expect("create first document");
+
+        let _doc2 = create_document(
+            &temp_dir,
+            &CreateDocumentInput {
+                title: Some("Second Doc".to_owned()),
+                body: Some("Second content".to_owned()),
+                folder_path: None,
+                tags: vec![],
+                tags_locked: Some(false),
+                id: Some("abc789def".to_owned()),
+            },
+        )
+        .expect("create second document");
+
+        // Exact match should work
+        let exact = read_document(&temp_dir, "abc123456").expect("read by exact ID");
+        assert_eq!(exact.id, "abc123456");
+        assert_eq!(exact.title, "First Doc");
+
+        // Unique prefix should work
+        let prefix1 = read_document(&temp_dir, "abc12").expect("read by unique prefix");
+        assert_eq!(prefix1.id, "abc123456");
+        assert_eq!(prefix1.title, "First Doc");
+
+        let prefix2 = read_document(&temp_dir, "abc78").expect("read by unique prefix");
+        assert_eq!(prefix2.id, "abc789def");
+        assert_eq!(prefix2.title, "Second Doc");
+
+        // Ambiguous prefix should fail
+        let ambiguous = read_document(&temp_dir, "abc");
+        assert!(ambiguous.is_err());
+        match ambiguous {
+            Err(DocumentStoreError::Validation(msg)) => {
+                assert!(msg.contains("ambiguous"));
+                assert!(msg.contains("2 documents"));
+            }
+            _ => panic!("expected validation error for ambiguous prefix"),
+        }
+
+        // Non-matching prefix should fail
+        let not_found = read_document(&temp_dir, "xyz");
+        assert!(not_found.is_err());
+        match not_found {
+            Err(DocumentStoreError::NotFound(_)) => {}
+            _ => panic!("expected not found error for non-matching prefix"),
+        }
 
         let _ = fs::remove_dir_all(temp_dir);
     }

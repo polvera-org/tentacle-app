@@ -88,6 +88,9 @@ tentacle read "$doc_id" --json | jq -r '.content'
 
 # Tags it for tracking
 tentacle tag "$doc_id" "reviewed,agent-checked" --json
+
+# Deletes a document (soft delete to .trash/)
+tentacle delete "$doc_id" --force --json
 ```
 
 ### Non-Interactive Pipelines
