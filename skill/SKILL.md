@@ -82,11 +82,10 @@ tentacle folder create <name> --json
 # Rename a folder
 tentacle folder rename <old_name> <new_name> --json
 
-# Delete empty folder
-tentacle folder delete <name> --json
-
-# Force delete with contents
+# Delete folder (requires --force in non-interactive mode)
 tentacle folder delete <name> --force --json
+
+# The --force flag is required for non-interactive deletion to prevent accidents
 ```
 
 ## Document Listing & Search
@@ -181,7 +180,8 @@ tentacle tag <document_id> final,approved --replace --json
 
 ### Delete a Document
 ```bash
-tentacle delete <document_id> --json
+# Non-interactive deletion requires --force flag
+tentacle delete <document_id> --force --json
 ```
 
 ## Common Workflows
