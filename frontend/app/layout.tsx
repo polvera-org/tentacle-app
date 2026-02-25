@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth/auth-context";
+import { DeepLinkHandler } from "@/lib/auth/deep-link-handler";
 import { AppToaster } from "@/components/ui/app-toaster";
 import { EmbeddingModelStartupGate } from "@/components/providers/embedding-model-startup-gate";
 import { AppNotificationsProvider } from "@/components/providers/app-notifications-provider";
+import { ConsoleBridgeProvider } from "@/components/providers/console-bridge-provider";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -40,7 +42,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased bg-white text-gray-900 h-full">
+        <ConsoleBridgeProvider />
         <AuthProvider>
+          <DeepLinkHandler />
           <AppNotificationsProvider>
             <EmbeddingModelStartupGate>
               {children}

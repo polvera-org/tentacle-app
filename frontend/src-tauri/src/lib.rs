@@ -396,6 +396,16 @@ fn preload_embedding_model(
     Ok(())
 }
 
+#[tauri::command]
+fn log_from_frontend(level: String, message: String) {
+    match level.as_str() {
+        "error" => log::error!("[Frontend] {}", message),
+        "warn" => log::warn!("[Frontend] {}", message),
+        "info" => log::info!("[Frontend] {}", message),
+        _ => log::debug!("[Frontend] {}", message),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -425,11 +435,13 @@ pub fn run() {
             delete_document_folder,
             move_document_to_folder,
             get_embedding_model_load_state,
-            preload_embedding_model
+            preload_embedding_model,
+            log_from_frontend
         ])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 tentacle_core::config::default_data_dir().expect("no data dir")
@@ -439,13 +451,12 @@ pub fn run() {
             let embedding_runtime = EmbeddingRuntimeState::new();
             app.manage(embedding_runtime.clone());
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Enable logging in both debug and release for troubleshooting
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             spawn_embedding_model_preload(app.handle().clone(), embedding_runtime);
             Ok(())
         })

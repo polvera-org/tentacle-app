@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Tentacle needs access to your microphone to transcribe voice input for AI conversations.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.tentacle.desktop</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>tentacle</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

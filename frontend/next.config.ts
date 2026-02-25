@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    NEXT_PUBLIC_WEBSITE_URL: process.env.NEXT_PUBLIC_WEBSITE_URL,
+    NEXT_PUBLIC_PRO_WAITLIST_URL: process.env.NEXT_PUBLIC_PRO_WAITLIST_URL,
+  },
   turbopack: {
     resolveAlias: {
       // Keep `path`/`url` functional via browser polyfills and stub server-only modules.

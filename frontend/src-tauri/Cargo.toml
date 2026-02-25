@@ -30,3 +30,4 @@ tauri-plugin-fs = "2"
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tentacle-core = { path = "../../core" }
+tauri-plugin-deep-link = "2.4.7"

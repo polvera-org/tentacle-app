@@ -3,6 +3,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session, AuthError } from '@supabase/supabase-js'
 import { createClient } from './supabase-client'
+import { getAuthRedirectUrl, isTauriEnvironment } from '@/lib/utils/environment'
+import { open } from '@tauri-apps/plugin-shell'
 
 interface AuthContextType {
   user: User | null
@@ -71,12 +73,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     const supabase = createClient()
+    const redirectUrl = getAuthRedirectUrl()
+    console.log('[AuthContext] signInWithGoogle called, redirectUrl:', redirectUrl)
+
+    // In Tauri, we need to manually open the browser because window.open() is blocked
+    if (isTauriEnvironment()) {
+      console.log('[AuthContext] Tauri environment detected, using shell.open()')
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true, // Don't let Supabase try to open the browser
+        },
+      })
+
+      if (error) {
+        console.error('[AuthContext] signInWithGoogle error:', error)
+        return { error }
+      }
+
+      if (data?.url) {
+        console.log('[AuthContext] Opening OAuth URL in system browser:', data.url)
+        try {
+          await open(data.url)
+          console.log('[AuthContext] Browser opened successfully')
+        } catch (openError) {
+          console.error('[AuthContext] Failed to open browser:', openError)
+          return { error: new Error('Failed to open browser') as AuthError }
+        }
+      } else {
+        console.error('[AuthContext] No OAuth URL returned from Supabase')
+        return { error: new Error('No OAuth URL returned') as AuthError }
+      }
+
+      return { error: null }
+    }
+
+    // Non-Tauri environment (web)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: redirectUrl,
       },
     })
+    if (error) {
+      console.error('[AuthContext] signInWithGoogle error:', error)
+    } else {
+      console.log('[AuthContext] signInWithGoogle initiated successfully')
+    }
     return { error }
   }
 

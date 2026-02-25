@@ -2,12 +2,19 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/auth/supabase-client";
+import { isTauriEnvironment } from "@/lib/utils/environment";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // In Tauri environment, the deep link handler will process the callback
+    if (isTauriEnvironment()) {
+      console.log('Tauri environment detected, waiting for deep link handler...');
+      return;
+    }
+
     const supabase = createClient();
     let subscription: { unsubscribe: () => void } | null = null;
 
