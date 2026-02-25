@@ -33,13 +33,21 @@ function extractPreviewText(body: string, maxLength: number): string {
 }
 
 export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: DocumentCardProps) {
+  const MAX_VISIBLE_TAG_PILLS = 3
   const menuContainerRef = useRef<HTMLDivElement>(null)
+  const tagOverflowRef = useRef<HTMLDivElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isTagOverflowOpen, setIsTagOverflowOpen] = useState(false)
   const bodyPreview = extractPreviewText(doc.body, 120)
-  const visibleTags = doc.tags.slice(0, 3)
+  const isOverlayOpen = isMenuOpen || isTagOverflowOpen
+  const hasHiddenTags = doc.tags.length > MAX_VISIBLE_TAG_PILLS
+  const visibleTags = hasHiddenTags
+    ? doc.tags.slice(0, MAX_VISIBLE_TAG_PILLS - 1)
+    : doc.tags.slice(0, MAX_VISIBLE_TAG_PILLS)
+  const hiddenTags = hasHiddenTags ? doc.tags.slice(MAX_VISIBLE_TAG_PILLS - 1) : []
 
   useEffect(() => {
-    if (!isMenuOpen) {
+    if (!isMenuOpen && !isTagOverflowOpen) {
       return
     }
 
@@ -49,16 +57,21 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
         return
       }
 
-      if (menuContainerRef.current?.contains(target)) {
+      if (
+        menuContainerRef.current?.contains(target) ||
+        tagOverflowRef.current?.contains(target)
+      ) {
         return
       }
 
       setIsMenuOpen(false)
+      setIsTagOverflowOpen(false)
     }
 
     const handleDocumentKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsMenuOpen(false)
+        setIsTagOverflowOpen(false)
       }
     }
 
@@ -71,12 +84,14 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
       globalThis.document.removeEventListener('touchstart', handleDocumentPointer)
       globalThis.document.removeEventListener('keydown', handleDocumentKeyDown)
     }
-  }, [isMenuOpen])
+  }, [isMenuOpen, isTagOverflowOpen])
 
   return (
     <article
       data-grid-item="true"
-      className="relative h-48 overflow-hidden rounded-2xl border border-gray-200 bg-white transition-all hover:border-gray-300 hover:shadow-md"
+      className={`relative rounded-2xl border border-gray-200 bg-white transition-all hover:border-gray-300 hover:shadow-md ${
+        isOverlayOpen ? 'z-40' : 'z-0'
+      }`}
     >
       <button
         type="button"
@@ -86,42 +101,64 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
         <span className="sr-only">Open note {doc.title || 'Untitled'}</span>
       </button>
 
-      <div className="pointer-events-none border-b border-gray-100 bg-gray-50/70 px-4 py-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 shadow-sm">
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.7}
-            stroke="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
-            />
-          </svg>
-        </span>
-      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute right-0 top-0 h-9 w-9 rounded-tr-2xl border-b border-l border-gray-200 bg-gray-50 [clip-path:polygon(100%_0,0_0,100%_100%)]"
+      />
 
-      <div className="pointer-events-none relative z-10 p-4">
-        <h3 className="truncate text-sm font-semibold leading-5 text-gray-900">
+      <div className="pointer-events-none relative z-10 flex h-56 flex-col p-4 pr-16">
+        <h3 className="line-clamp-2 text-base font-bold leading-6 text-gray-900">
           {doc.title || 'Untitled'}
         </h3>
-        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-gray-500">
+        <p className="mt-2 line-clamp-3 text-sm leading-6 text-gray-600">
           {bodyPreview || 'Empty document'}
         </p>
         {visibleTags.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div ref={tagOverflowRef} className="pointer-events-auto relative mt-auto flex flex-wrap gap-2 pt-3">
             {visibleTags.map((tag) => (
               <span
                 key={tag}
-                className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600"
+                className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 break-words"
               >
                 #{tag}
               </span>
             ))}
+            {hiddenTags.length > 0 ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setIsMenuOpen(false)
+                    setIsTagOverflowOpen((current) => !current)
+                  }}
+                  aria-haspopup="menu"
+                  aria-expanded={isTagOverflowOpen}
+                  aria-label={`Show ${hiddenTags.length} more tags`}
+                  className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+                >
+                  ...
+                </button>
+                {isTagOverflowOpen ? (
+                  <div
+                    role="menu"
+                    aria-label="More tags"
+                    className="absolute left-0 top-[calc(100%+0.35rem)] z-30 w-max max-w-[12rem] rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
+                  >
+                    <div className="flex flex-wrap gap-1.5">
+                      {hiddenTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 break-words"
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -131,12 +168,13 @@ export function DocumentCard({ document: doc, onOpen, onMove, onDelete }: Docume
           type="button"
           onClick={(event) => {
             event.stopPropagation()
+            setIsTagOverflowOpen(false)
             setIsMenuOpen((current) => !current)
           }}
           aria-haspopup="menu"
           aria-expanded={isMenuOpen}
           aria-label={`Note actions for ${doc.title || 'Untitled'}`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
         >
           <svg
             aria-hidden="true"
