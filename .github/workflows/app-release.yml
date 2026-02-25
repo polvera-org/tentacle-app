@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 40
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - platform: macos-latest # macOS ARM (M1/M2/M3)
