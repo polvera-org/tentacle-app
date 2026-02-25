@@ -72,7 +72,7 @@ cd "$FRONTEND_DIR"
 npm ci
 npm run tauri build -- --target "$TARGET"
 
-BUNDLE_DIR="$FRONTEND_DIR/src-tauri/target/$TARGET/release/bundle/dmg"
+BUNDLE_DIR="$ROOT_DIR/target/$TARGET/release/bundle/dmg"
 DMG_PATH="$(find "$BUNDLE_DIR" -maxdepth 1 -type f -name '*.dmg' | sort | tail -n1 || true)"
 
 if [ -z "$DMG_PATH" ] || [ ! -f "$DMG_PATH" ]; then
