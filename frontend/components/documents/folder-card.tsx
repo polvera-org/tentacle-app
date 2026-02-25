@@ -58,38 +58,24 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
   return (
     <article
       data-grid-item="true"
-      className="relative h-32 rounded-2xl border border-gray-200 bg-white transition-all hover:border-gray-300 hover:shadow-sm"
+      className="group relative h-22 rounded-2xl border border-brand-300/50 bg-gradient-to-tr from-brand-50/60 to-white/40 transition-all hover:border-brand-300/70 hover:from-brand-50/80 hover:to-white/60 hover:shadow-md"
     >
       <button
         type="button"
         onClick={() => onOpen(folder.path)}
-        className="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+        className="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/30"
       >
         <span className="sr-only">Open folder {folder.name}</span>
       </button>
 
-      <div className="pointer-events-none relative z-10 flex h-full flex-col justify-between p-4 pr-14">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 shadow-sm">
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5"
-          >
-            <path d="M3.75 8.25A2.25 2.25 0 0 1 6 6h4.25a2.25 2.25 0 0 1 1.59.66l1.16 1.16a2.25 2.25 0 0 0 1.59.66H18A2.25 2.25 0 0 1 20.25 10.73v6.52A2.25 2.25 0 0 1 18 19.5H6a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
-          </svg>
-        </span>
+      <div className="pointer-events-none relative z-10 flex h-full flex-col justify-end px-5 pb-5 pr-14">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold leading-5 text-gray-900">{folder.name}</p>
-          <p className="mt-1.5 text-xs leading-5 text-gray-500">{formatFolderMeta(folder)}</p>
+          <p className="truncate text-sm font-semibold leading-5 text-gray-900 transition-colors group-hover:text-brand-700">{folder.name}</p>
+          <p className="mt-1 text-xs leading-5 text-gray-500">{formatFolderMeta(folder)}</p>
         </div>
       </div>
 
-      <div ref={menuContainerRef} className="absolute right-3 top-3 z-20">
+      <div ref={menuContainerRef} className={`absolute right-3 top-3 ${isMenuOpen ? 'z-50' : 'z-20'}`}>
         <button
           type="button"
           onClick={(event) => {
@@ -99,7 +85,7 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
           aria-haspopup="menu"
           aria-expanded={isMenuOpen}
           aria-label={`Folder actions for ${folder.name}`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-brand-200 bg-white/90 text-brand-400 shadow-sm transition-colors hover:border-brand-300 hover:text-brand-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
         >
           <svg
             aria-hidden="true"
@@ -121,7 +107,7 @@ export function FolderCard({ folder, onOpen, onRename, onDelete }: FolderCardPro
           <div
             role="menu"
             aria-label={`Actions for ${folder.name}`}
-            className="absolute right-0 top-[calc(100%+0.3rem)] z-30 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg"
+            className="absolute right-0 top-[calc(100%+0.3rem)] z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg"
           >
             <button
               type="button"

@@ -863,7 +863,7 @@ export function DocumentGrid({
 
   if (isInitialCacheLoading && documents.length === 0) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:px-8">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="h-56 animate-pulse rounded-2xl bg-gray-100" />
         ))}
@@ -888,7 +888,7 @@ export function DocumentGrid({
       : 'Empty folder. Right-click or long-press to create a document or folder.'
 
   return (
-    <div className="flex h-full min-h-0 flex-col space-y-3">
+    <div className="flex h-full min-h-0 flex-col space-y-3 lg:px-8">
       {isSynchronizing ? (
         <p className="text-sm text-gray-500" role="status" aria-live="polite">
           Synchronizing...
