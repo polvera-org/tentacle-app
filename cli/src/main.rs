@@ -252,6 +252,22 @@ struct SearchResponsePayload {
 }
 
 #[derive(Debug, Serialize)]
+struct AgentSearchResultPayload {
+    docid: String,
+    score: f32,
+    path: String,
+    context: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AgentSearchResponsePayload {
+    query: String,
+    results: Vec<AgentSearchResultPayload>,
+    total_results: usize,
+    search_time_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
 struct ReadResponsePayload {
     id: String,
     title: String,
@@ -646,6 +662,7 @@ fn handle_search(args: &SearchArgs, json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
     let folder_filter = normalize_folder_filter(args.folder.as_deref())?;
     let tag_filter = parse_csv_values(args.tags.as_deref().unwrap_or_default());
+    let json_mode = json || args.json;
 
     let started = Instant::now();
     let response = KnowledgeBaseService::search(
@@ -665,18 +682,12 @@ fn handle_search(args: &SearchArgs, json: bool) -> Result<(), CliError> {
             continue;
         }
 
-        let (snippet, matched_chunks) = if args.snippets {
-            match document_store::read_document(&documents_folder, &result.id) {
-                Ok(document) => {
-                    let snippet = build_snippet(&document.body, &args.query);
-                    (snippet.clone(), snippet.map(|_| 1))
-                }
-                Err(DocumentStoreError::NotFound(_)) => (None, None),
-                Err(error) => return Err(map_document_store_error(error)),
-            }
-        } else {
-            (None, None)
+        let snippet = match document_store::read_document(&documents_folder, &result.id) {
+            Ok(document) => build_snippet(&document.body, &args.query),
+            Err(DocumentStoreError::NotFound(_)) => None,
+            Err(error) => return Err(map_document_store_error(error)),
         };
+        let matched_chunks = if snippet.is_some() { Some(1) } else { None };
 
         results.push(SearchResultPayload {
             id: result.id,
@@ -684,8 +695,8 @@ fn handle_search(args: &SearchArgs, json: bool) -> Result<(), CliError> {
             relevance_score: result.relevance_score,
             folder: result.folder_path,
             tags: result.tags,
-            snippet,
-            matched_chunks,
+            snippet: if args.snippets { snippet } else { None },
+            matched_chunks: if args.snippets { matched_chunks } else { None },
         });
     }
 
@@ -700,8 +711,40 @@ fn handle_search(args: &SearchArgs, json: bool) -> Result<(), CliError> {
         search_time_ms: duration_ms(started.elapsed()),
     };
 
-    if json {
-        return print_json(&payload);
+    if args.files {
+        for result in &payload.results {
+            let path = build_agent_path(&result.folder, &result.id);
+            let context = result
+                .snippet
+                .clone()
+                .unwrap_or_else(|| result.title.clone())
+                .replace('\t', " ")
+                .replace('\n', " ");
+            println!("{}\t{:.6}\t{}\t{}", result.id, result.relevance_score, path, context);
+        }
+        return Ok(());
+    }
+
+    if json_mode {
+        let agent_payload = AgentSearchResponsePayload {
+            query: payload.query.clone(),
+            total_results: payload.total_results,
+            search_time_ms: payload.search_time_ms,
+            results: payload
+                .results
+                .iter()
+                .map(|result| AgentSearchResultPayload {
+                    docid: result.id.clone(),
+                    score: result.relevance_score,
+                    path: build_agent_path(&result.folder, &result.id),
+                    context: result
+                        .snippet
+                        .clone()
+                        .unwrap_or_else(|| result.title.clone()),
+                })
+                .collect(),
+        };
+        return print_json(&agent_payload);
     }
 
     println!(
@@ -730,7 +773,11 @@ fn handle_read(args: &ReadArgs, json: bool) -> Result<(), CliError> {
     let documents_folder = load_documents_folder()?;
     let document = document_store::read_document(&documents_folder, &args.document_id)
         .map_err(map_document_store_error)?;
-    let payload = map_document_to_read_payload(document);
+    let mut payload = map_document_to_read_payload(document);
+
+    if args.from.is_some() || args.length.is_some() {
+        payload.content = slice_lines(&payload.content, args.from.unwrap_or(1), args.length);
+    }
 
     if json {
         return print_json(&payload);
@@ -1566,6 +1613,23 @@ fn build_snippet(content: &str, query: &str) -> Option<String> {
     Some(format!("{prefix}{snippet}{suffix}"))
 }
 
+fn build_agent_path(folder: &str, document_id: &str) -> String {
+    if folder.trim().is_empty() {
+        format!("{document_id}.md")
+    } else {
+        format!("{folder}/{document_id}.md")
+    }
+}
+
+fn slice_lines(content: &str, from: usize, length: Option<usize>) -> String {
+    let start = from.max(1) - 1;
+    let mut lines = content.lines().skip(start);
+    match length {
+        Some(n) => lines.by_ref().take(n).collect::<Vec<_>>().join("\n"),
+        None => lines.collect::<Vec<_>>().join("\n"),
+    }
+}
+
 fn map_document_to_read_payload(document: StoredDocument) -> ReadResponsePayload {
     let size_bytes = document.body.as_bytes().len() as u64;
     ReadResponsePayload {
@@ -1677,5 +1741,34 @@ fn map_io_error(error: std::io::Error) -> CliError {
         _ => CliError::General {
             message: error.to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_agent_path, slice_lines};
+
+    #[test]
+    fn build_agent_path_includes_folder_and_extension() {
+        assert_eq!(build_agent_path("docs/guides", "doc-123"), "docs/guides/doc-123.md");
+    }
+
+    #[test]
+    fn build_agent_path_handles_empty_folder() {
+        assert_eq!(build_agent_path("", "doc-123"), "doc-123.md");
+        assert_eq!(build_agent_path("   ", "doc-123"), "doc-123.md");
+    }
+
+    #[test]
+    fn slice_lines_respects_from_and_length() {
+        let content = "l1\nl2\nl3\nl4";
+        assert_eq!(slice_lines(content, 2, Some(2)), "l2\nl3");
+        assert_eq!(slice_lines(content, 3, None), "l3\nl4");
+    }
+
+    #[test]
+    fn slice_lines_clamps_from_to_one() {
+        let content = "l1\nl2";
+        assert_eq!(slice_lines(content, 0, Some(1)), "l1");
     }
 }
