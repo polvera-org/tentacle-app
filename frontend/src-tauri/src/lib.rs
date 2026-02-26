@@ -443,6 +443,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            {
+                app.handle().plugin(tauri_plugin_mcp_bridge::init()).ok();
+            }
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 tentacle_core::config::default_data_dir().expect("no data dir")
             });
