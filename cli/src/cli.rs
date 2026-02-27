@@ -101,6 +101,12 @@ pub struct SearchArgs {
 
     #[arg(long)]
     pub snippets: bool,
+
+    #[arg(long, conflicts_with = "files", help = "Output search results in stable JSON schema")]
+    pub json: bool,
+
+    #[arg(long, conflicts_with = "json", help = "Output compact TSV-like rows: docid\tscore\tpath\tcontext")]
+    pub files: bool,
 }
 
 #[derive(Debug, Args)]
@@ -109,6 +115,12 @@ pub struct ReadArgs {
 
     #[arg(long)]
     pub metadata: bool,
+
+    #[arg(long, help = "1-based start line")]
+    pub from: Option<usize>,
+
+    #[arg(short = 'l', long = "length", help = "Number of lines to return")]
+    pub length: Option<usize>,
 }
 
 #[derive(Debug, Args)]
