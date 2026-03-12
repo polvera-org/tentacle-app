@@ -1013,9 +1013,10 @@ export function DocumentGrid({
 
       <ConfirmDialog
         open={documentToDelete !== null}
-        title="Delete note"
-        description={documentToDelete ? `Delete "${documentToDelete.title || 'Untitled'}"? This cannot be undone.` : ''}
-        confirmLabel="Delete"
+        title="Move note to trash"
+        description={documentToDelete ? `Move "${documentToDelete.title || 'Untitled'}" to trash? You can restore it later.` : ''}
+        confirmLabel="Move to trash"
+        loadingLabel="Moving..."
         onConfirm={() => {
           void handleDeleteDocumentConfirm()
         }}

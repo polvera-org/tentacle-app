@@ -470,8 +470,10 @@ function DocumentDetailContent() {
 
       <ConfirmDialog
         open={showDeleteDialog}
-        title="Delete document?"
+        title="Move document to trash?"
         description="This document will be moved to trash."
+        confirmLabel="Move to trash"
+        loadingLabel="Moving..."
         onConfirm={handleDelete}
         onCancel={() => setShowDeleteDialog(false)}
         isLoading={isDeleting}

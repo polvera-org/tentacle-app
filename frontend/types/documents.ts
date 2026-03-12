@@ -68,6 +68,34 @@ export interface HybridSearchHit {
   score: number
 }
 
+export interface TrashItem {
+  id: string
+  file_name: string
+  original_folder_path: string
+  trash_path: string
+  deleted_at_unix_seconds: number
+  size_bytes: number
+}
+
+export interface TrashListResult {
+  items: TrashItem[]
+  total_count: number
+  total_size_bytes: number
+}
+
+export interface TrashStats {
+  total_count: number
+  total_size_bytes: number
+}
+
+export type TrashRecoveryStrategy = 'original_location' | 'with_suffix'
+
+export interface TrashRecoveryResult {
+  success: boolean
+  recovered_to: string
+  conflict_handled: boolean
+}
+
 export interface CachedDocumentChunkEmbeddingPayload {
   document_id: string
   chunk_index: number

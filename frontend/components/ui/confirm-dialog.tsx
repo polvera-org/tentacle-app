@@ -7,6 +7,8 @@ interface ConfirmDialogProps {
   title: string
   description: string
   confirmLabel?: string
+  loadingLabel?: string
+  confirmVariant?: 'danger' | 'primary'
   onConfirm: () => void
   onCancel: () => void
   isLoading?: boolean
@@ -17,6 +19,8 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = 'Delete',
+  loadingLabel = 'Processing...',
+  confirmVariant = 'danger',
   onConfirm,
   onCancel,
   isLoading = false,
@@ -40,6 +44,10 @@ export function ConfirmDialog({
 
   if (!open) return null
 
+  const confirmButtonClassName = confirmVariant === 'primary'
+    ? 'h-10 px-4 text-sm font-medium text-white bg-brand-600 hover:bg-brand-500 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50'
+    : 'h-10 px-4 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
@@ -58,9 +66,9 @@ export function ConfirmDialog({
           <button
             onClick={onConfirm}
             disabled={isLoading}
-            className="h-10 px-4 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50"
+            className={confirmButtonClassName}
           >
-            {isLoading ? 'Deleting...' : confirmLabel}
+            {isLoading ? loadingLabel : confirmLabel}
           </button>
         </div>
       </div>

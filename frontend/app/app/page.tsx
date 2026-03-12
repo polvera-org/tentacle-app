@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { DocumentGrid } from '@/components/documents/document-grid'
@@ -9,6 +9,8 @@ import { MyAccountModal } from '@/components/account/my-account-modal'
 import { ApiKeyBanner } from '@/components/onboarding/api-key-banner'
 import { useDebounce } from '@/hooks/use-debounce'
 import { useAuth } from '@/lib/auth/auth-context'
+import { getTrashStats, TRASH_CHANGED_EVENT } from '@/lib/documents/trash'
+import type { TrashStats } from '@/types/documents'
 
 function normalizeFolderPath(value: string | null | undefined): string {
   if (typeof value !== 'string') {
@@ -47,6 +49,10 @@ export default function DashboardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isAccountOpen, setIsAccountOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [trashStats, setTrashStats] = useState<TrashStats>({
+    total_count: 0,
+    total_size_bytes: 0,
+  })
   const debouncedSearchQuery = useDebounce(searchQuery, 400)
 
   const currentFolderPath = useMemo(
@@ -73,6 +79,36 @@ export default function DashboardPage() {
     const nextUrl = queryString.length > 0 ? `${pathname}?${queryString}` : pathname
     router.replace(nextUrl)
   }, [pathname, router, searchParams])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadTrashStats = async () => {
+      try {
+        const nextStats = await getTrashStats()
+        if (!isCancelled) {
+          setTrashStats(nextStats)
+        }
+      } catch (error) {
+        console.error('[DashboardPage] Failed to load trash stats.', error)
+      }
+    }
+
+    void loadTrashStats()
+
+    const handleRefresh = () => {
+      void loadTrashStats()
+    }
+
+    window.addEventListener(TRASH_CHANGED_EVENT, handleRefresh)
+    window.addEventListener('documents-folder-changed', handleRefresh)
+
+    return () => {
+      isCancelled = true
+      window.removeEventListener(TRASH_CHANGED_EVENT, handleRefresh)
+      window.removeEventListener('documents-folder-changed', handleRefresh)
+    }
+  }, [])
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -143,7 +179,7 @@ export default function DashboardPage() {
       <main className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full max-w-7xl flex-col px-4 py-8 sm:px-6 lg:px-8">
           <ApiKeyBanner onOpenSettings={() => setIsSettingsOpen(true)} />
-          <div className="mb-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row">
             <label htmlFor="documents-search" className="sr-only">
               Search documents
             </label>
@@ -154,8 +190,18 @@ export default function DashboardPage() {
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search documents"
               autoComplete="off"
-              className="w-full h-14 rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              className="h-14 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-500 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
+            <button
+              type="button"
+              onClick={() => router.push('/app/trash')}
+              className="inline-flex h-14 shrink-0 items-center justify-between rounded-xl border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-800 shadow-sm transition-colors hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:min-w-36"
+            >
+              <span>Trash</span>
+              <span className="ml-3 inline-flex min-w-8 items-center justify-center rounded-full bg-stone-900 px-2 py-1 text-xs font-bold text-white">
+                {trashStats.total_count}
+              </span>
+            </button>
           </div>
           <div className="min-h-0 flex-1">
             <DocumentGrid
