@@ -20,6 +20,7 @@ use tentacle_core::embeddings::{
     sync_documents_embeddings_batch as sync_documents_embeddings_batch_in_core,
     EmbeddingBatchSyncResultPayload, EmbeddingModelLoadStatePayload, EmbeddingSyncDocumentPayload,
 };
+use tentacle_core::trash::{RecoveryStrategy, RecoveryResult, TrashListResult, TrashService, TrashStats};
 
 const EMBEDDING_MODEL_LOAD_EVENT: &str = "embedding-model-load-state";
 
@@ -380,6 +381,43 @@ fn move_document_to_folder(
     .map_err(|err| err.to_string())
 }
 
+
+#[tauri::command]
+fn list_trash_items(documents_folder: String) -> Result<TrashListResult, String> {
+    TrashService::list_trash(Path::new(&documents_folder)).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn recover_trash_item(
+    documents_folder: String,
+    trash_path: String,
+    strategy: RecoveryStrategy,
+) -> Result<RecoveryResult, String> {
+    TrashService::recover_item(Path::new(&documents_folder), &trash_path, strategy)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn delete_trash_item_permanently(documents_folder: String, trash_path: String) -> Result<(), String> {
+    TrashService::delete_permanently(Path::new(&documents_folder), &trash_path)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn clear_trash_items(documents_folder: String) -> Result<usize, String> {
+    TrashService::clear_trash(Path::new(&documents_folder)).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn run_trash_auto_cleanup(documents_folder: String) -> Result<usize, String> {
+    TrashService::run_auto_cleanup(Path::new(&documents_folder)).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn get_trash_stats(documents_folder: String) -> Result<TrashStats, String> {
+    TrashService::get_trash_stats(Path::new(&documents_folder)).map_err(|err| err.to_string())
+}
+
 #[tauri::command]
 fn get_embedding_model_load_state(
     runtime: tauri::State<'_, EmbeddingRuntimeState>,
@@ -434,6 +472,12 @@ pub fn run() {
             rename_document_folder,
             delete_document_folder,
             move_document_to_folder,
+            list_trash_items,
+            recover_trash_item,
+            delete_trash_item_permanently,
+            clear_trash_items,
+            run_trash_auto_cleanup,
+            get_trash_stats,
             get_embedding_model_load_state,
             preload_embedding_model,
             log_from_frontend

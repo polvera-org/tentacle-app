@@ -1119,6 +1119,14 @@ function scheduleDocumentEmbeddingDelete(folder: string, documentId: string): vo
   })
 }
 
+function notifyTrashChanged(): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.dispatchEvent(new CustomEvent('trash-changed'))
+}
+
 export async function fetchCachedDocuments(): Promise<DocumentListItem[]> {
   try {
     const folder = await getConfiguredDocumentsFolder()
@@ -1442,16 +1450,19 @@ export async function deleteDocument(id: string): Promise<void> {
 
     const sourcePath = file.path
     const trashFolder = joinPath(folder, TRASH_FOLDER_NAME)
+    const trashDestinationFolder = file.relativeFolderPath
+      ? joinPath(trashFolder, file.relativeFolderPath)
+      : trashFolder
     const baseFileName = file.name
 
-    await fs.mkdir(trashFolder, { recursive: true })
+    await fs.mkdir(trashDestinationFolder, { recursive: true })
 
-    let destinationPath = joinPath(trashFolder, baseFileName)
+    let destinationPath = joinPath(trashDestinationFolder, baseFileName)
     let collisionIndex = 2
     while (await fs.exists(destinationPath)) {
       const title = removeMarkdownExtension(baseFileName)
       destinationPath = joinPath(
-        trashFolder,
+        trashDestinationFolder,
         `${title}-${Date.now()}-${collisionIndex}${MARKDOWN_EXTENSION}`,
       )
       collisionIndex += 1
@@ -1466,6 +1477,7 @@ export async function deleteDocument(id: string): Promise<void> {
     }
 
     scheduleDocumentEmbeddingDelete(folder, id)
+    notifyTrashChanged()
   } catch (error) {
     console.error(`[deleteDocument] Failed to delete document "${id}":`, error)
     if (error instanceof Error) {
